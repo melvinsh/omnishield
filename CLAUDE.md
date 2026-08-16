@@ -24,7 +24,10 @@ rustup's shims live in `/opt/homebrew/opt/rustup/bin`, **not** `~/.cargo/bin` (w
 cargo-installed binaries like `cargo-ndk`). Gradle resolves `cargo` itself via `rustToolDirs` in
 `app/build.gradle.kts`, so builds work without these exports; the Rust commands do not.
 
-This is **not a git repository**.
+Git: `master` on `github.com/melvinsh/omnishield` (private). Build outputs, `core/target/`,
+`app/src/main/jniLibs/` and the ~13 MB of downloaded blocklists are gitignored — the lists are
+pulled off a device on demand (see the offline probes below), while `core/probe-*.txt` are
+checked-in fixtures and should stay that way.
 
 ## Commands
 
