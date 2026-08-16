@@ -46,8 +46,8 @@ Tests — all three suites must pass:
 
 ```bash
 cd core && cargo test                      # 101 host-native tests, no emulator
-./gradlew testDebugUnitTest                # 24 Kotlin unit tests (Robolectric)
-./gradlew connectedDebugAndroidTest        # 16 Room tests, needs a running emulator
+./gradlew testDebugUnitTest                # 49 Kotlin unit tests (Robolectric)
+./gradlew connectedDebugAndroidTest        # 36 Room + Compose UI tests, needs an emulator
 ```
 
 Single tests:
@@ -198,6 +198,33 @@ render its reason, not fall back to looking like "not connected".
 
 Room has **no destructive migration fallback**. Schema changes need a real migration; schemas
 are exported to `app/schemas/`.
+
+### The screens
+
+Five tabs, one file each in `ui/`, all wrapped in `ui/components/ScreenScaffold` — which
+supplies the title bar (title + one-line statement of what the screen is for) and the
+`SnackbarHost` reachable through `LocalSnackbar`. A screen without it renders with no title and
+throws on the first snackbar, both deliberate: every screen must say what it is, and every
+action must be acknowledged.
+
+`MainActivity`'s `Scaffold` owns the navigation bar and zeroes its own `contentWindowInsets`,
+because each `TopAppBar` applies the status-bar inset itself. Padding both double-pads.
+
+Three things in here are not free choices:
+
+- **`ruleSummary` (firewall) and `overrideTarget` (log) are the load-bearing bits of UI logic**,
+  and both have unit tests. The firewall's switches *block*, which is the opposite of the usual
+  reading, so the row states its rule in words and the switch is a second representation of it.
+  `overrideTarget` decides whether a log row even has a domain to override: a `tcp` row is
+  labelled `address:port` and an `http` row with a full URL, and a user rule keyed on either
+  literal string is stored, listed in Settings, and matches nothing.
+- **The firewall list never reorders.** Grouping blocked apps at the top was tried and reverted:
+  a `LazyColumn` holds its scroll offset while items are inserted above it, so toggling a switch
+  slid the row the user had just touched out of the viewport. Finding blocked apps is a filter
+  chip instead.
+- **New filter lists are not pushed into a running core.** `FilterRefreshWorker` explains why;
+  the manual "Refresh now" in Settings therefore says the lists load on the next connect rather
+  than implying an effect it does not have.
 
 ## Build constraints worth knowing before touching Gradle
 

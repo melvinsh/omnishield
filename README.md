@@ -461,6 +461,60 @@ dropped from 431k rules to a few hundred with no error anywhere.
 
 ---
 
+## User interface
+
+The app was built outward from the packet path, and it showed: every screen was a thin
+rendering of whatever state the core exposed, and none of them explained themselves. The
+firewall was the clearest case — a `App | Wi-Fi | Data` header over a list of bare switches,
+with nothing saying what the screen did or which way the switches ran. They *block*, which is
+the opposite of the usual "on means enabled" reading, and there was no safe way to guess.
+
+### What changed
+
+| | Before | After |
+|---|---|---|
+| Screens with a title | 0 of 5 | 5 of 5, each with a line saying what it is for |
+| Feedback on an action | none — no `Snackbar` anywhere | every mutation acknowledged; firewall toggles undoable |
+| Destructive actions | fired on one tap, silently | confirmation naming the row count and what survives |
+| Firewall rule state | switch position only | stated in words per row, in the row's own colour |
+| Log verdict | a 10 dp coloured dot | icon + colour + text in the row description |
+| Hardcoded UI strings | 15 | 0 |
+
+Three features existed in the repositories and had no way in at all. They do now: **filter
+lists** (sizes, last-updated, a manual refresh — `settings_lists` had been defined in
+`strings.xml` and referenced nowhere), an **editable resolver** (`setDohUrl`/`setUpstreamUdp`
+were wired but the screen rendered static text), and **un-pinning an app** that once rejected
+our certificate (`clearPinnedUids` was never called from anywhere, so the bypass was
+permanent). The log's kind filter was the fourth — `setKind` had no caller.
+
+### Two bugs this surfaced
+
+- **Overrides on rows that have no domain.** The sheet offered "Always allow" on every log row
+  and stored the row's label. A `tcp` row is labelled `address:port` and a content-filter row
+  with a full URL, and user rules match domains — so allowing a TCP row wrote a rule that
+  could never match, listed it in Settings as though it were in force, and left the user
+  believing they had unblocked something. `overrideTarget` now extracts a host, or declines.
+- **A list that reordered under the finger.** Grouping blocked apps at the top of the firewall
+  looked right in a screenshot and was wrong in the hand: a `LazyColumn` holds its scroll
+  offset while items are inserted above it, so toggling a switch slid the row just touched out
+  of the viewport. Caught on the emulator, not in review. The order is now always alphabetical
+  and the grouping is a filter chip.
+
+### Verified
+
+- **101 Rust, 49 Kotlin unit and 36 instrumented tests pass**, the latter two up from 24 and 16.
+  The new ones cover the firewall wording and undo, both confirmation dialogs, resolver
+  validation, day bucketing across local midnight, override targeting, and the per-app
+  interception switches being inert while the master switch is off.
+- Every screen was captured on the emulator in light and dark, plus the paused dashboard, the
+  override sheet, both dialogs, search, and an empty log. The reordering bug above was found
+  that way and nowhere else.
+- Idle CPU with the screen off is unchanged from the efficiency pass, which is the check that
+  matters here: a UI pass is exactly where a stray eager collector or a per-frame binder call
+  gets reintroduced.
+
+---
+
 ## Known limitations
 
 - **HTTPS filtering only reaches Chrome-family browsers.** Since Android 7, apps ignore

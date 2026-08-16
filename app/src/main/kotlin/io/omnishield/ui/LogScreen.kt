@@ -2,7 +2,6 @@
 
 package io.omnishield.ui
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -14,38 +13,57 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Block
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.ToggleButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.omnishield.R
 import io.omnishield.data.LogEntry
+import io.omnishield.ui.components.ConfirmDialog
+import io.omnishield.ui.components.LocalSnackbar
+import io.omnishield.ui.components.ScreenScaffold
+import io.omnishield.ui.components.rememberCollapsingBar
 import java.text.SimpleDateFormat
+import java.util.Calendar
 import java.util.Date
 import java.util.Locale
+import kotlinx.coroutines.launch
 
 /**
  * Live request log, backed by Room so history survives a restart.
@@ -59,84 +77,172 @@ fun LogScreen(modifier: Modifier = Modifier, viewModel: LogViewModel = viewModel
     val filter by viewModel.filter.collectAsStateWithLifecycle()
     val overrides by viewModel.overrides.collectAsStateWithLifecycle()
     var selected by remember { mutableStateOf<LogEntry?>(null) }
+    var confirmClear by remember { mutableStateOf(false) }
+    val bar = rememberCollapsingBar()
+    val keyboard = LocalSoftwareKeyboardController.current
 
-    Column(modifier = modifier.fillMaxSize()) {
-        OutlinedTextField(
-            value = filter.query,
-            onValueChange = viewModel::setQuery,
-            label = { Text(stringResource(R.string.log_search)) },
-            singleLine = true,
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 8.dp),
-        )
-
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            ToggleButton(
-                checked = filter.blockedOnly,
-                onCheckedChange = viewModel::setBlockedOnly,
-            ) {
-                Text(stringResource(R.string.log_blocked_only))
-            }
-            Text(
-                text = "${entries.size}",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.weight(1f),
-            )
-            TextButton(onClick = viewModel::clearLog) {
+    ScreenScaffold(
+        title = stringResource(R.string.title_log),
+        subtitle = stringResource(R.string.subtitle_log),
+        modifier = modifier,
+        scrollBehavior = bar,
+        actions = {
+            TextButton(onClick = { confirmClear = true }, enabled = entries.isNotEmpty()) {
                 Text(stringResource(R.string.log_clear))
             }
-        }
-        HorizontalDivider()
+        },
+    ) { inner ->
+        val snackbar = LocalSnackbar.current
+        val scope = rememberCoroutineScope()
+        val cleared = stringResource(R.string.log_cleared)
 
-        if (entries.isEmpty()) {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text(
-                    text = if (filter.query.isBlank() && !filter.blockedOnly) {
-                        stringResource(R.string.log_empty)
-                    } else {
-                        stringResource(R.string.log_empty_filtered)
-                    },
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+        Column(modifier = Modifier.fillMaxSize().padding(inner)) {
+            OutlinedTextField(
+                value = filter.query,
+                onValueChange = viewModel::setQuery,
+                label = { Text(stringResource(R.string.log_search)) },
+                singleLine = true,
+                leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
+                trailingIcon = {
+                    if (filter.query.isNotEmpty()) {
+                        IconButton(onClick = { viewModel.setQuery(""); keyboard?.hide() }) {
+                            Icon(
+                                Icons.Filled.Close,
+                                contentDescription = stringResource(R.string.action_clear_text),
+                            )
+                        }
+                    }
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+            )
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                FilterChip(
+                    selected = filter.blockedOnly,
+                    onClick = { viewModel.setBlockedOnly(!filter.blockedOnly) },
+                    label = { Text(stringResource(R.string.log_blocked_only)) },
                 )
+                // `setKind` has existed on the ViewModel from the start with nothing calling
+                // it, so filtering by DNS or by connection was implemented but unreachable.
+                KindChip(KIND_DNS, R.string.log_kind_dns, filter.kind, viewModel::setKind)
+                KindChip(KIND_TCP, R.string.log_kind_tcp, filter.kind, viewModel::setKind)
             }
-        } else {
-            LazyColumn(Modifier.fillMaxSize()) {
-                items(entries, key = { it.seq }) { entry ->
-                    LogRow(
-                        entry = entry,
-                        override = overrides[entry.name],
-                        onClick = { selected = entry },
+
+            Text(
+                text = pluralStringResource(R.plurals.log_count, entries.size, entries.size),
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+            )
+            HorizontalDivider()
+
+            if (entries.isEmpty()) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text(
+                        text = if (filter.query.isBlank() &&
+                            !filter.blockedOnly &&
+                            filter.kind.isEmpty()
+                        ) {
+                            stringResource(R.string.log_empty)
+                        } else {
+                            stringResource(R.string.log_empty_filtered)
+                        },
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    HorizontalDivider(color = MaterialTheme.colorScheme.surfaceContainerHighest)
+                }
+            } else {
+                // Timestamps are wall-clock only, so without a day break a row from yesterday
+                // is indistinguishable from one a minute old.
+                val days = remember(entries) { groupByDay(entries) }
+                LazyColumn(Modifier.fillMaxSize()) {
+                    days.forEach { (day, rows) ->
+                        item(key = "day-$day") { DayHeader(day) }
+                        items(rows, key = { it.seq }) { entry ->
+                            LogRow(
+                                entry = entry,
+                                override = overrideTarget(entry.name)?.let { overrides[it] },
+                                onClick = { selected = entry },
+                            )
+                            HorizontalDivider(
+                                color = MaterialTheme.colorScheme.surfaceContainerHighest
+                            )
+                        }
+                    }
                 }
             }
         }
-    }
 
-    selected?.let { entry ->
-        DomainOverrideSheet(
-            entry = entry,
-            override = overrides[entry.name],
-            onAllow = { viewModel.allow(entry.name); selected = null },
-            onBlock = { viewModel.block(entry.name); selected = null },
-            onClear = { viewModel.clearOverride(entry.name); selected = null },
-            onDismiss = { selected = null },
-        )
+        if (confirmClear) {
+            ConfirmDialog(
+                title = stringResource(R.string.log_clear_title),
+                body = pluralStringResource(
+                    R.plurals.log_clear_body,
+                    entries.size,
+                    entries.size,
+                ),
+                confirmLabel = stringResource(R.string.log_clear),
+                onConfirm = {
+                    viewModel.clearLog()
+                    scope.launch { snackbar.showSnackbar(cleared) }
+                },
+                onDismiss = { confirmClear = false },
+            )
+        }
+
+        selected?.let { entry ->
+            // The override applies to a *domain*, so it is keyed on the host extracted from the
+            // row rather than on the row's label. A TCP row is labelled with an address and has
+            // no domain at all; offering to allow "142.250.102.188:5228" would have written a
+            // user rule that nothing can ever match and reported success.
+            val target = overrideTarget(entry.name)
+            DomainOverrideSheet(
+                entry = entry,
+                target = target,
+                override = target?.let { overrides[it] },
+                onAllow = { target?.let(viewModel::allow); selected = null },
+                onBlock = { target?.let(viewModel::block); selected = null },
+                onClear = { target?.let(viewModel::clearOverride); selected = null },
+                onDismiss = { selected = null },
+            )
+        }
     }
+}
+
+internal const val KIND_DNS = "dns"
+internal const val KIND_TCP = "tcp"
+
+@Composable
+private fun KindChip(kind: String, labelRes: Int, current: String, onSelect: (String) -> Unit) {
+    FilterChip(
+        selected = current == kind,
+        onClick = { onSelect(if (current == kind) "" else kind) },
+        label = { Text(stringResource(labelRes)) },
+    )
+}
+
+@Composable
+private fun DayHeader(dayStart: Long) {
+    Text(
+        text = dayLabel(dayStart),
+        style = MaterialTheme.typography.labelLarge,
+        color = MaterialTheme.colorScheme.primary,
+        modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 4.dp),
+    )
 }
 
 @Composable
 private fun DomainOverrideSheet(
     entry: LogEntry,
+    target: String?,
     override: Boolean?,
     onAllow: () -> Unit,
     onBlock: () -> Unit,
@@ -144,12 +250,18 @@ private fun DomainOverrideSheet(
     onDismiss: () -> Unit,
 ) {
     val sheetState = rememberModalBottomSheetState()
+    val clipboard = LocalClipboardManager.current
+    val snackbar = LocalSnackbar.current
+    val scope = rememberCoroutineScope()
+    val copied = stringResource(R.string.log_copied)
+
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
         Column(Modifier.padding(bottom = 24.dp)) {
             ListItem(
-                headlineContent = {
-                    Text(entry.name, fontFamily = FontFamily.Monospace)
+                overlineContent = {
+                    if (target != null) Text(stringResource(R.string.log_sheet_title))
                 },
+                headlineContent = { Text(entry.name, fontFamily = FontFamily.Monospace) },
                 supportingContent = {
                     Text(
                         buildString {
@@ -159,23 +271,50 @@ private fun DomainOverrideSheet(
                         }
                     )
                 },
+                trailingContent = {
+                    IconButton(onClick = {
+                        clipboard.setText(AnnotatedString(entry.name))
+                        scope.launch { snackbar.showSnackbar(copied) }
+                    }) {
+                        Icon(
+                            Icons.Filled.ContentCopy,
+                            contentDescription = stringResource(R.string.action_copy),
+                        )
+                    }
+                },
             )
+            Text(
+                text = if (target != null) {
+                    stringResource(R.string.log_sheet_body, target)
+                } else {
+                    stringResource(R.string.log_sheet_no_domain)
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+            )
+            if (target == null) return@Column
             HorizontalDivider()
             if (override != true) {
                 ListItem(
                     headlineContent = { Text(stringResource(R.string.domain_allow)) },
+                    leadingContent = {
+                        Icon(Icons.Filled.CheckCircle, contentDescription = null)
+                    },
                     modifier = Modifier.clickable(onClick = onAllow),
                 )
             }
             if (override != false) {
                 ListItem(
                     headlineContent = { Text(stringResource(R.string.domain_block)) },
+                    leadingContent = { Icon(Icons.Filled.Block, contentDescription = null) },
                     modifier = Modifier.clickable(onClick = onBlock),
                 )
             }
             if (override != null) {
                 ListItem(
                     headlineContent = { Text(stringResource(R.string.domain_clear_override)) },
+                    leadingContent = { Icon(Icons.Filled.Close, contentDescription = null) },
                     modifier = Modifier.clickable(onClick = onClear),
                 )
             }
@@ -185,26 +324,43 @@ private fun DomainOverrideSheet(
 
 private val timeFormat = SimpleDateFormat("HH:mm:ss", Locale.US)
 
+/** Internal so the instrumented tests can assert a row without a database behind it. */
 @Composable
-private fun LogRow(entry: LogEntry, override: Boolean?, onClick: () -> Unit) {
-    val verdict = if (entry.blocked) "blocked" else "allowed"
+internal fun LogRow(entry: LogEntry, override: Boolean?, onClick: () -> Unit) {
+    val verdict = if (entry.blocked) {
+        stringResource(R.string.log_verdict_blocked)
+    } else {
+        stringResource(R.string.log_verdict_allowed)
+    }
+    val rowDescription = stringResource(R.string.cd_log_row, entry.name, verdict)
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 10.dp)
-            .semantics { contentDescription = "${entry.name}, $verdict" },
+            .semantics { contentDescription = rowDescription },
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Box(
-            Modifier
-                .size(10.dp)
-                .clip(CircleShape)
-                .background(
-                    if (entry.blocked) MaterialTheme.colorScheme.error
-                    else MaterialTheme.colorScheme.primary
-                )
+        // Shape as well as colour. A 10 dp coloured dot was the only thing separating a
+        // blocked row from an allowed one, which is invisible to a red-green colour deficit.
+        // Blocked is the row worth noticing, so it gets the filled glyph and the error tint
+        // while "allowed" stays quiet — the previous solid blue tick made every ordinary row
+        // shout.
+        Icon(
+            imageVector = if (entry.blocked) {
+                Icons.Filled.Block
+            } else {
+                Icons.Outlined.CheckCircle
+            },
+            contentDescription = null,
+            tint = if (entry.blocked) {
+                MaterialTheme.colorScheme.error
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            },
+            modifier = Modifier.size(18.dp),
         )
         Column(Modifier.weight(1f)) {
             Text(
@@ -212,22 +368,27 @@ private fun LogRow(entry: LogEntry, override: Boolean?, onClick: () -> Unit) {
                 style = MaterialTheme.typography.bodyMedium,
                 fontFamily = FontFamily.Monospace,
                 maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
+            val overrideLabel = when (override) {
+                true -> stringResource(R.string.log_override_allow)
+                false -> stringResource(R.string.log_override_block)
+                null -> null
+            }
             Text(
                 text = buildString {
                     append(entry.kind.uppercase())
                     if (entry.app.isNotEmpty()) append(" · ${entry.app}")
-                    when (override) {
-                        true -> append(" · allowlisted")
-                        false -> append(" · user-blocked")
-                        null -> if (entry.blocked && entry.rule.isNotEmpty()) {
-                            append(" · ${entry.rule}")
-                        }
+                    if (overrideLabel != null) {
+                        append(" · $overrideLabel")
+                    } else if (entry.blocked && entry.rule.isNotEmpty()) {
+                        append(" · ${entry.rule}")
                     }
                 },
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
         }
         Text(
@@ -237,3 +398,62 @@ private fun LogRow(entry: LogEntry, override: Boolean?, onClick: () -> Unit) {
         )
     }
 }
+
+/**
+ * Buckets entries into day sections, preserving the newest-first order they arrive in.
+ *
+ * Extracted and pure so the boundary cases — an entry from just before midnight next to one
+ * from just after — can be asserted without a device.
+ */
+internal fun groupByDay(entries: List<LogEntry>): List<Pair<Long, List<LogEntry>>> =
+    entries
+        .groupBy { startOfDay(it.ts) }
+        .toList()
+        .sortedByDescending { it.first }
+
+/** Today and yesterday by name; anything older by date. */
+@Composable
+private fun dayLabel(dayStart: Long): String {
+    val today = remember { startOfDay(System.currentTimeMillis()) }
+    return when (dayStart) {
+        today -> stringResource(R.string.log_today)
+        today - DAY_MILLIS -> stringResource(R.string.log_yesterday)
+        else -> remember(dayStart) {
+            SimpleDateFormat("EEEE d MMMM", Locale.getDefault()).format(Date(dayStart))
+        }
+    }
+}
+
+private const val DAY_MILLIS = 24L * 60 * 60 * 1000
+
+/**
+ * The domain an override would apply to, or null when the row does not name one.
+ *
+ * Log rows are labelled with whatever identifies the event, and that is not always a hostname:
+ * a plain TCP connection is labelled with `address:port`, and a blocked request from the
+ * content filter with a full URL. User rules match domains, so an override taken from either
+ * of those labels verbatim would be stored, shown in Settings, and never match anything.
+ *
+ * A URL is reduced to its host, which is genuinely useful. An address is rejected — the
+ * distinguishing test is that a hostname contains a letter, which no IPv4 literal does.
+ */
+internal fun overrideTarget(name: String): String? {
+    val withoutScheme = name.substringAfter("://", name)
+    val hostAndPort = withoutScheme.substringBefore('/')
+    // Bracketed IPv6, e.g. [2606:4700::1111]:443. Never a domain.
+    if (hostAndPort.startsWith("[")) return null
+    val host = hostAndPort.substringBefore(':').trim().trimEnd('.')
+
+    if (!host.contains('.')) return null
+    if (host.none { it.isLetter() }) return null
+    if (host.any { !it.isLetterOrDigit() && it != '-' && it != '.' }) return null
+    return host.lowercase()
+}
+
+internal fun startOfDay(ts: Long): Long = Calendar.getInstance().apply {
+    timeInMillis = ts
+    set(Calendar.HOUR_OF_DAY, 0)
+    set(Calendar.MINUTE, 0)
+    set(Calendar.SECOND, 0)
+    set(Calendar.MILLISECOND, 0)
+}.timeInMillis

@@ -16,8 +16,13 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.BatteryFull
+import androidx.compose.material.icons.filled.Block
+import androidx.compose.material.icons.filled.VpnKey
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialShapes
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -32,13 +37,16 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import io.omnishield.R
 
-private data class Page(val title: String, val body: String)
+private data class Page(val titleRes: Int, val bodyRes: Int, val icon: ImageVector)
 
 /**
  * First-run explainer.
@@ -47,29 +55,24 @@ private data class Page(val title: String, val body: String)
  * traffic. Presenting that dialog cold, with no statement of what the app is or why it needs
  * it, is how a privacy tool ends up looking like the thing it protects against.
  *
- * Deliberately does not ask for anything itself — it explains, then hands over to the normal
- * connect flow, which sequences the notification permission and VPN consent properly.
+ * It still asks for nothing itself — it explains, then reports through [onFinished] whether the
+ * user wants to connect, and the main scaffold runs the normal consent sequence. Ending on
+ * "Connect now" rather than dropping the user on a dashboard matters: the previous flow
+ * finished by silently revealing a screen whose primary action the user then had to find.
  */
 @Composable
-fun OnboardingScreen(onFinished: () -> Unit) {
-    val pages = listOf(
-        Page(
-            title = "Blocks ads and trackers",
-            body = "OmniShield filters DNS for every app on the device, so trackers are " +
-                "refused before a connection is ever made. No root required.",
-        ),
-        Page(
-            title = "Why it asks for VPN permission",
-            body = "Android only lets an app see network traffic through a VPN interface. " +
-                "OmniShield runs that tunnel locally on your device — nothing is sent to a " +
-                "remote server, and there is no account.",
-        ),
-        Page(
-            title = "Keep it running",
-            body = "Android may suspend background services to save power. If filtering " +
-                "stops unexpectedly, exempt OmniShield from battery optimisation in Settings.",
-        ),
-    )
+fun OnboardingScreen(onFinished: (connect: Boolean) -> Unit) {
+    val pages = remember {
+        listOf(
+            Page(R.string.onboarding_1_title, R.string.onboarding_1_body, Icons.Filled.Block),
+            Page(R.string.onboarding_2_title, R.string.onboarding_2_body, Icons.Filled.VpnKey),
+            Page(
+                R.string.onboarding_3_title,
+                R.string.onboarding_3_body,
+                Icons.Filled.BatteryFull,
+            ),
+        )
+    }
 
     var index by remember { mutableIntStateOf(0) }
     val page = pages[index]
@@ -78,6 +81,7 @@ fun OnboardingScreen(onFinished: () -> Unit) {
         animationSpec = spring(dampingRatio = 0.5f, stiffness = Spring.StiffnessLow),
         label = "onboardingProgress",
     )
+    val pageLabel = stringResource(R.string.cd_onboarding_page, index + 1, pages.size)
 
     Surface(Modifier.fillMaxSize()) {
         Column(
@@ -92,27 +96,30 @@ fun OnboardingScreen(onFinished: () -> Unit) {
                 modifier = Modifier
                     .size(180.dp)
                     .clip(MaterialShapes.Cookie9Sided.toShape())
-                    .background(MaterialTheme.colorScheme.primaryContainer),
+                    .background(MaterialTheme.colorScheme.primaryContainer)
+                    .semantics { contentDescription = pageLabel },
                 contentAlignment = Alignment.Center,
             ) {
-                Text(
-                    text = "${index + 1}",
-                    style = MaterialTheme.typography.displayLarge,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                // Was a giant page number, which told the reader nothing they could not get
+                // from the dots below it.
+                Icon(
+                    imageVector = page.icon,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                    modifier = Modifier.size(84.dp),
                 )
             }
 
             Spacer(Modifier.weight(0.4f))
 
             Text(
-                text = page.title,
+                text = stringResource(page.titleRes),
                 style = MaterialTheme.typography.headlineMedium,
                 fontWeight = FontWeight.Bold,
                 textAlign = TextAlign.Center,
             )
             Text(
-                text = page.body,
+                text = stringResource(page.bodyRes),
                 style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center,
@@ -147,11 +154,11 @@ fun OnboardingScreen(onFinished: () -> Unit) {
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                TextButton(onClick = onFinished) {
+                TextButton(onClick = { onFinished(false) }) {
                     Text(stringResource(R.string.onboarding_skip))
                 }
                 Button(onClick = {
-                    if (index < pages.lastIndex) index++ else onFinished()
+                    if (index < pages.lastIndex) index++ else onFinished(true)
                 }) {
                     Text(
                         if (index < pages.lastIndex) {

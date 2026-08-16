@@ -73,6 +73,35 @@ class FilterRepository(context: Context) {
         DNS_SOURCES.any { File(cacheDir, it.name).let { f -> f.isFile && f.length() > 0 } }
 
     /**
+     * What is on disk, for display.
+     *
+     * The lists were entirely invisible in the UI: no way to see which ones were in use, when
+     * they were last fetched, or to fetch them on demand — only a daily worker the user could
+     * neither observe nor trigger. Costs a `stat` per source, not a read.
+     */
+    fun status(): List<ListStatus> = (DNS_SOURCES + CONTENT_SOURCES).map { source ->
+        val file = File(cacheDir, source.name)
+        val present = file.isFile && file.length() > 0
+        ListStatus(
+            name = source.name,
+            content = source in CONTENT_SOURCES,
+            bytes = if (present) file.length() else 0,
+            updatedAt = if (present) file.lastModified() else 0,
+        )
+    }
+
+    data class ListStatus(
+        val name: String,
+        /** ABP browser-syntax list (Layer 3) rather than a DNS list (Layer 1). */
+        val content: Boolean,
+        val bytes: Long,
+        /** Epoch millis of the last successful download, or 0 if never fetched. */
+        val updatedAt: Long,
+    ) {
+        val downloaded: Boolean get() = updatedAt > 0
+    }
+
+    /**
      * Identifies the exact set of list files currently on disk, without reading them.
      *
      * Name, size and modification time of each cached list, plus the bundled asset. That is

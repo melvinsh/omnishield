@@ -5,6 +5,7 @@ import android.content.Intent
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import io.omnishield.data.AppRule
+import io.omnishield.data.FilterRepository
 import io.omnishield.data.LogEntry
 import io.omnishield.data.LogRepository
 import io.omnishield.data.RulesRepository
@@ -16,15 +17,20 @@ import io.omnishield.data.TunnelStatus
 import io.omnishield.data.UpstreamMode
 import io.omnishield.data.UserRule
 import io.omnishield.vpn.OmniShieldVpnService
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * Shared base for the screen ViewModels.
@@ -88,13 +94,10 @@ class DashboardViewModel(app: Application) : BaseViewModel(app) {
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), DashboardUiState())
 
-    fun toggleTunnel() {
-        if (uiState.value.isRunning) {
-            sendToService(OmniShieldVpnService.ACTION_STOP)
-        } else {
-            sendToService(OmniShieldVpnService.ACTION_START)
-        }
-    }
+    // There is deliberately no toggleTunnel() here. Starting the tunnel needs an Activity to
+    // host the VPN consent dialog and the notification permission request, so the connect
+    // action belongs to MainActivity; the version that lived here was unreachable and would
+    // have failed silently if anything had ever called it.
 
     fun setFiltering(enabled: Boolean) = viewModelScope.launch {
         settingsRepo.setFiltering(enabled)
@@ -126,8 +129,18 @@ class LogViewModel(app: Application) : BaseViewModel(app) {
     private val _filter = MutableStateFlow(LogFilter())
     val filter: StateFlow<LogFilter> = _filter
 
-    @OptIn(ExperimentalCoroutinesApi::class)
+    /**
+     * The text field reads [filter] directly so typing stays immediate; the database sees a
+     * debounced copy. Every keystroke used to open a new `LIKE '%…%'` query over the whole
+     * table and throw away the previous one — a table scan per character.
+     *
+     * Only the query is debounced. The chips are single taps, and delaying those would make the
+     * screen feel broken rather than efficient.
+     */
+    @OptIn(ExperimentalCoroutinesApi::class, FlowPreview::class)
     val entries: StateFlow<List<LogEntry>> = _filter
+        .debounce { if (it.query.isEmpty()) 0L else SEARCH_DEBOUNCE_MS }
+        .distinctUntilChanged()
         .flatMapLatest { f -> logRepo.observe(f.blockedOnly, f.query, f.kind) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
@@ -163,11 +176,16 @@ class LogViewModel(app: Application) : BaseViewModel(app) {
         // the user just added is worthless if it only takes effect on the next connect.
         sendToService(OmniShieldVpnService.ACTION_REFRESH)
     }
+
+    companion object {
+        /** Long enough to swallow a burst of typing, short enough not to feel laggy. */
+        const val SEARCH_DEBOUNCE_MS = 250L
+    }
 }
 
 // ---------------------------------------------------------------------------
 
-class AppsViewModel(app: Application) : BaseViewModel(app) {
+class FirewallViewModel(app: Application) : BaseViewModel(app) {
 
     private val _apps = MutableStateFlow<List<InstalledApp>?>(null)
     val apps: StateFlow<List<InstalledApp>?> = _apps
@@ -193,17 +211,36 @@ data class SecurityUiState(
     val caPem: String = "",
     val contentRules: Int = 0,
     val settings: Settings = Settings(),
+    /** Whether this device's trust store actually contains our CA. */
+    val caInstalled: Boolean = false,
 )
 
 class SecurityViewModel(app: Application) : BaseViewModel(app) {
+
+    private val caInstalled = MutableStateFlow(false)
 
     val uiState: StateFlow<SecurityUiState> = combine(
         TunnelRepository.caPem,
         TunnelRepository.contentRules,
         settingsRepo.settings,
-    ) { pem, rules, settings ->
-        SecurityUiState(caPem = pem, contentRules = rules, settings = settings)
+        caInstalled,
+    ) { pem, rules, settings, installed ->
+        SecurityUiState(
+            caPem = pem,
+            contentRules = rules,
+            settings = settings,
+            caInstalled = installed,
+        )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SecurityUiState())
+
+    /**
+     * Re-reads the system trust store. Called on every resume, because the user leaves the app
+     * to install the certificate and comes back expecting the screen to know.
+     */
+    fun refreshCaTrust() = viewModelScope.launch {
+        val pem = TunnelRepository.caPem.value
+        caInstalled.value = withContext(Dispatchers.IO) { isCaInstalled(pem) }
+    }
 
     fun setMitmEnabled(enabled: Boolean) = viewModelScope.launch {
         settingsRepo.setMitmEnabled(enabled)
@@ -214,14 +251,72 @@ class SecurityViewModel(app: Application) : BaseViewModel(app) {
         settingsRepo.setMitmUids(uids)
         sendToService(OmniShieldVpnService.ACTION_REFRESH)
     }
+
+    /** Clears the "rejected our certificate" mark so the app is tried again. */
+    fun unpin(uid: Int) = viewModelScope.launch {
+        settingsRepo.removePinnedUid(uid)
+        sendToService(OmniShieldVpnService.ACTION_REFRESH)
+    }
 }
 
 // ---------------------------------------------------------------------------
 
+/** Outcome of a manual list refresh, so the button can report rather than just stop spinning. */
+sealed interface RefreshState {
+    data object Idle : RefreshState
+    data object Running : RefreshState
+    data class Done(val count: Int) : RefreshState
+    data object Failed : RefreshState
+}
+
 class SettingsViewModel(app: Application) : BaseViewModel(app) {
+
+    private val filterRepo = FilterRepository(app)
 
     val settings: StateFlow<Settings> = settingsRepo.settings
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), Settings())
+
+    private val _lists = MutableStateFlow<List<FilterRepository.ListStatus>>(emptyList())
+    val lists: StateFlow<List<FilterRepository.ListStatus>> = _lists
+
+    private val _refresh = MutableStateFlow<RefreshState>(RefreshState.Idle)
+    val refreshState: StateFlow<RefreshState> = _refresh
+
+    val filterRules: StateFlow<Int> = TunnelRepository.filterRules
+
+    init {
+        reloadLists()
+    }
+
+    fun reloadLists() = viewModelScope.launch {
+        _lists.value = withContext(Dispatchers.IO) { filterRepo.status() }
+    }
+
+    /**
+     * Downloads every list now.
+     *
+     * `FilterRefreshWorker` still owns the scheduled refresh; this is the manual path, which
+     * did not exist. A partial result is reported as the number that succeeded rather than as
+     * a failure — one unreachable source should not read as "nothing works".
+     *
+     * Deliberately does **not** push the new lists into a running core. `FilterRefreshWorker`
+     * documents why: swapping ~430k rules out from under the packet thread mid-session is not
+     * worth the risk for rules that change daily. The result message says so rather than
+     * letting the user assume otherwise.
+     */
+    fun refreshLists() = viewModelScope.launch {
+        if (_refresh.value == RefreshState.Running) return@launch
+        _refresh.value = RefreshState.Running
+        val fetched = runCatching {
+            filterRepo.refresh().size + filterRepo.refreshContentRules().size
+        }.getOrDefault(0)
+        reloadLists()
+        _refresh.value = if (fetched > 0) RefreshState.Done(fetched) else RefreshState.Failed
+    }
+
+    fun refreshHandled() {
+        _refresh.value = RefreshState.Idle
+    }
 
     /**
      * Null until DataStore has produced its first value.
@@ -248,8 +343,14 @@ class SettingsViewModel(app: Application) : BaseViewModel(app) {
 
     fun setUpstreamMode(mode: UpstreamMode) = update { setUpstreamMode(mode) }
     fun setDohUrl(url: String) = update { setDohUrl(url) }
+    fun setUpstreamUdp(server: String) = update { setUpstreamUdp(server) }
     fun setBlockDot(enabled: Boolean) = update { setBlockDot(enabled) }
     fun setStartOnBoot(enabled: Boolean) = update { setStartOnBoot(enabled) }
+
+    /** Sends the user back through the introduction from Settings. */
+    fun replayOnboarding() = viewModelScope.launch {
+        settingsRepo.setOnboardingComplete(false)
+    }
 
     fun clearOverride(domain: String) = viewModelScope.launch {
         rulesRepo.clearOverride(domain)

@@ -109,6 +109,20 @@ class SettingsRepository(context: Context) {
 
     suspend fun clearPinnedUids() = putIntSet(Keys.PINNED_UIDS, emptySet())
 
+    /**
+     * Un-marks one app, so interception is attempted again on its next connection.
+     *
+     * Pinning is recorded automatically when an app rejects our certificate, and without this
+     * it was a one-way door: an app that was updated to stop pinning, or that tripped the
+     * detection once by accident, stayed bypassed for the life of the install.
+     */
+    suspend fun removePinnedUid(uid: Int) {
+        store.edit { prefs ->
+            val existing = prefs[Keys.PINNED_UIDS].orEmpty()
+            prefs[Keys.PINNED_UIDS] = existing - uid.toString()
+        }
+    }
+
     private suspend fun <T> put(key: Preferences.Key<T>, value: T) {
         store.edit { it[key] = value }
     }

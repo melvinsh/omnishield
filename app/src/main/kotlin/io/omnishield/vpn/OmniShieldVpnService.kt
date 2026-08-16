@@ -30,6 +30,7 @@ import io.omnishield.ui.MainActivity
 import java.io.File
 import java.net.InetAddress
 import java.net.InetSocketAddress
+import java.text.DateFormat
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -84,6 +85,14 @@ class OmniShieldVpnService : VpnService() {
     private var nativeHandle: Long = 0
     private var scope: CoroutineScope? = null
     private var lastNotificationAt = 0L
+
+    /** Mirrors `Settings.pausedUntil` so the notification can be built without suspending. */
+    @Volatile
+    private var pausedUntilMillis = 0L
+
+    /** Last count published, so a state-only republish does not have to invent one. */
+    @Volatile
+    private var lastBlockedForNotification = 0L
 
     private lateinit var settings: SettingsRepository
     private lateinit var filters: FilterRepository
@@ -170,6 +179,8 @@ class OmniShieldVpnService : VpnService() {
 
         newScope.launch {
             val current = settings.current()
+            // A tunnel can start into an existing snooze — the alarm outlives the process.
+            pausedUntilMillis = current.pausedUntil
 
             val pfd = runCatching { buildTunnel(current) }
                 .onFailure { Log.e(TAG, "failed to establish tunnel", it) }
@@ -288,6 +299,7 @@ class OmniShieldVpnService : VpnService() {
         settings.setPausedUntil(until)
         pushConfig()
         PauseAlarm.schedule(this, until)
+        republishNotification(until)
         Log.i(TAG, "filtering paused for $minutes min")
     }
 
@@ -295,7 +307,18 @@ class OmniShieldVpnService : VpnService() {
         settings.setPausedUntil(0)
         PauseAlarm.cancel(this)
         pushConfig()
+        republishNotification(0)
         Log.i(TAG, "filtering resumed")
+    }
+
+    /**
+     * Pause and resume must reach the notification immediately, so this bypasses the rate
+     * limit that exists for the blocked counter. The state changed; the count did not.
+     */
+    private fun republishNotification(until: Long) {
+        pausedUntilMillis = until
+        lastNotificationAt = 0
+        updateNotification(lastBlockedForNotification)
     }
 
     // -----------------------------------------------------------------------
@@ -532,6 +555,7 @@ class OmniShieldVpnService : VpnService() {
      * need to be correct to the half-second.
      */
     private fun updateNotification(blockedCount: Long) {
+        lastBlockedForNotification = blockedCount
         val now = SystemClock.elapsedRealtime()
         if (now - lastNotificationAt < NOTIFICATION_MIN_INTERVAL_MS) return
         lastNotificationAt = now
@@ -569,21 +593,70 @@ class OmniShieldVpnService : VpnService() {
             PendingIntent.FLAG_IMMUTABLE,
         )
     }
+    private val resumeIntent: PendingIntent by lazy {
+        PendingIntent.getService(
+            this,
+            3,
+            Intent(this, OmniShieldVpnService::class.java).setAction(ACTION_RESUME),
+            PendingIntent.FLAG_IMMUTABLE,
+        )
+    }
 
+    /**
+     * The persistent notification.
+     *
+     * It reflects a snooze now. It used to read "OmniShield is active" and offer "Pause 5 min"
+     * while filtering was already paused — the one place a user checks when they suspect
+     * protection is off was the place that told them it was on.
+     */
     private fun buildNotification(blockedCount: Long): Notification {
-        return Notification.Builder(this, CHANNEL_ID)
-            .setContentTitle(getString(R.string.notification_title))
-            .setContentText(getString(R.string.notification_text_active, blockedCount))
+        val pausedUntil = pausedUntilMillis
+        val paused = pausedUntil > System.currentTimeMillis()
+
+        val builder = Notification.Builder(this, CHANNEL_ID)
+            .setContentTitle(
+                getString(
+                    if (paused) R.string.notification_title_paused else R.string.notification_title
+                )
+            )
+            .setContentText(
+                if (paused) {
+                    getString(
+                        R.string.notification_text_paused,
+                        DateFormat.getTimeInstance(DateFormat.SHORT)
+                            .format(java.util.Date(pausedUntil)),
+                    )
+                } else {
+                    resources.getQuantityString(
+                        R.plurals.notification_text_active,
+                        blockedCount.coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
+                        blockedCount,
+                    )
+                }
+            )
             .setSmallIcon(R.drawable.ic_notification)
             .setContentIntent(contentIntent)
             .setOngoing(true)
-            .addAction(
+
+        if (paused) {
+            builder.addAction(
+                Notification.Action.Builder(
+                    null,
+                    getString(R.string.action_resume),
+                    resumeIntent,
+                ).build()
+            )
+        } else {
+            builder.addAction(
                 Notification.Action.Builder(
                     null,
                     getString(R.string.action_pause_5m),
                     pauseIntent,
                 ).build()
             )
+        }
+
+        return builder
             .addAction(
                 Notification.Action.Builder(null, getString(R.string.action_stop), stopIntent)
                     .build()

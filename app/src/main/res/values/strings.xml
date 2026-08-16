@@ -6,94 +6,214 @@
     <string name="notification_channel_name">Tunnel status</string>
     <string name="notification_channel_description">Shown while the OmniShield tunnel is active.</string>
     <string name="notification_title">OmniShield is active</string>
-    <string name="notification_text_active">%1$d requests blocked</string>
+    <string name="notification_title_paused">OmniShield is paused</string>
+    <string name="notification_text_paused">Filtering resumes at %1$s</string>
+    <plurals name="notification_text_active">
+        <item quantity="one">%1$d request blocked</item>
+        <item quantity="other">%1$d requests blocked</item>
+    </plurals>
     <string name="action_stop">Stop</string>
     <string name="action_pause_5m">Pause 5 min</string>
+
+    <!-- Shared actions -->
+    <string name="action_cancel">Cancel</string>
+    <string name="action_undo">Undo</string>
+    <string name="action_copy">Copy</string>
+    <string name="action_clear_text">Clear text</string>
 
     <!-- Navigation -->
     <string name="tab_shield">Shield</string>
     <string name="tab_log">Log</string>
-    <string name="tab_apps">Apps</string>
-    <string name="tab_https">HTTPS</string>
+    <string name="tab_firewall">Firewall</string>
+    <string name="tab_web">Web</string>
     <string name="tab_settings">Settings</string>
 
+    <!-- Screen titles. Every screen says what it is; none of them did before. -->
+    <string name="title_shield">OmniShield</string>
+    <string name="subtitle_shield">Blocking ads and trackers for every app</string>
+    <string name="title_log">Request log</string>
+    <string name="subtitle_log">Every lookup and connection the tunnel saw</string>
+    <string name="title_firewall">Firewall</string>
+    <string name="subtitle_firewall">Cut an app off from the network entirely</string>
+    <string name="title_web">Web filtering</string>
+    <string name="subtitle_web">In-page ad removal, for browsers that allow it</string>
+    <string name="title_settings">Settings</string>
+
     <!-- Dashboard -->
-    <string name="status_protected">ads &amp; trackers blocked</string>
-    <string name="status_starting">starting tunnel…</string>
-    <string name="status_stopped">not protected</string>
-    <string name="status_paused">filtering paused</string>
-    <string name="status_failed">couldn\'t start</string>
+    <string name="status_protected">Protected</string>
+    <string name="status_starting">Starting tunnel…</string>
+    <string name="status_stopped">Not protected</string>
+    <string name="status_paused">Filtering paused</string>
+    <string name="status_failed">Couldn\'t start</string>
+    <string name="shield_total_label">requests blocked, all time</string>
+    <string name="cd_shield_running">%1$d requests blocked in total. Protection is on.</string>
+    <string name="cd_shield_stopped">%1$d requests blocked in total. Protection is off.</string>
     <string name="action_connect">Connect</string>
     <string name="action_disconnect">Disconnect</string>
+    <string name="action_connecting">Connecting…</string>
     <string name="action_resume">Resume now</string>
     <string name="action_retry">Try again</string>
-    <string name="block_rate">%1$d%% of %2$d DNS queries</string>
+    <string name="block_rate">%1$d%% of %2$d DNS queries blocked</string>
     <string name="stat_connections">Connections</string>
-    <string name="stat_firewalled">Firewalled</string>
-    <string name="stat_filter_rules">Filter rules</string>
+    <string name="stat_firewalled">Blocked by firewall</string>
     <string name="stat_dns_queries">DNS queries</string>
+    <!-- Session-scoped, unlike the other three tiles: the daily rollups predate the DNS cache
+         and have no column for it. Said in the label rather than left to be inferred. -->
+    <string name="stat_dns_cached">Cached this session</string>
     <string name="setting_filtering">Filtering</string>
     <string name="setting_filtering_sub">Sinkhole known ad and tracker domains</string>
     <string name="setting_quic">Block QUIC</string>
-    <string name="setting_quic_sub">Forces browsers off HTTP/3 so HTTPS can be inspected</string>
+    <string name="setting_quic_sub">Forces HTTP/3 apps back to TCP, where the tunnel can see and filter them</string>
     <string name="doh_degraded">Encrypted DNS unavailable — queries are going out in the clear</string>
     <string name="pause_title">Pause filtering</string>
+    <string name="pause_5m">5 min</string>
+    <string name="pause_30m">30 min</string>
+    <string name="pause_1h">1 hour</string>
+    <string name="pause_until">Filtering resumes at %1$s</string>
 
     <!-- Log -->
     <string name="log_blocked_only">Blocked only</string>
+    <string name="log_kind_dns">DNS</string>
+    <string name="log_kind_tcp">Connections</string>
     <string name="log_clear">Clear</string>
     <string name="log_search">Search domains or apps</string>
     <string name="log_empty">No requests yet.\nConnect the tunnel and open an app.</string>
     <string name="log_empty_filtered">Nothing matches that filter.</string>
+    <plurals name="log_count">
+        <item quantity="one">%1$d entry</item>
+        <item quantity="other">%1$d entries</item>
+    </plurals>
+    <string name="log_clear_title">Clear request history?</string>
+    <plurals name="log_clear_body">
+        <item quantity="one">This deletes %1$d stored entry. Daily totals shown on the Shield screen are kept.</item>
+        <item quantity="other">This deletes all %1$d stored entries. Daily totals shown on the Shield screen are kept.</item>
+    </plurals>
+    <string name="log_cleared">Request history cleared</string>
+    <string name="log_today">Today</string>
+    <string name="log_yesterday">Yesterday</string>
+    <string name="log_verdict_blocked">Blocked</string>
+    <string name="log_verdict_allowed">Allowed</string>
+    <string name="log_override_allow">Always allowed</string>
+    <string name="log_override_block">Always blocked</string>
+    <string name="log_sheet_title">Override this domain</string>
+    <string name="log_sheet_body">Applies to %1$s. Your choice beats every downloaded rule for that domain, and takes effect straight away.</string>
+    <string name="log_sheet_no_domain">This row names an address, not a domain, so there is nothing here to allow or block by name. Use the Firewall tab to stop the app that opened it.</string>
+    <string name="log_copied">Copied to the clipboard</string>
     <string name="domain_allow">Always allow</string>
     <string name="domain_block">Always block</string>
     <string name="domain_clear_override">Remove override</string>
+    <string name="cd_log_row">%1$s, %2$s</string>
 
-    <!-- Apps -->
-    <string name="apps_header_app">App</string>
-    <string name="apps_header_wifi">Wi-Fi</string>
-    <string name="apps_header_data">Data</string>
+    <!-- Firewall -->
+    <string name="firewall_legend">Turning a switch on blocks that app. Rules take effect immediately, including on a tunnel that is already running.</string>
+    <string name="firewall_search">Search apps</string>
+    <string name="firewall_header_wifi">Wi-Fi</string>
+    <string name="firewall_header_data">Mobile</string>
+    <plurals name="firewall_section_blocked">
+        <item quantity="one">%1$d app blocked</item>
+        <item quantity="other">%1$d apps blocked</item>
+    </plurals>
+    <string name="firewall_none_blocked">No apps are blocked.</string>
+    <!-- Kept short enough to survive a narrow row without ellipsis: a truncated rule is worse
+         than no rule, because it reads as complete. -->
+    <string name="firewall_rule_none">Allowed</string>
+    <string name="firewall_rule_wifi">Blocked on Wi-Fi</string>
+    <string name="firewall_rule_mobile">Blocked on mobile</string>
+    <string name="firewall_rule_both">Blocked on both</string>
+    <string name="firewall_rule_changed">%1$s — %2$s</string>
     <string name="apps_empty">No apps with network access found.</string>
+    <string name="apps_empty_search">No app matches “%1$s”.</string>
     <string name="apps_loading">Loading apps…</string>
     <string name="cd_block_wifi">Block %1$s on Wi-Fi</string>
     <string name="cd_block_mobile">Block %1$s on mobile data</string>
 
-    <!-- HTTPS -->
-    <string name="https_title">HTTPS filtering</string>
+    <!-- Web (HTTPS) -->
+    <string name="web_lead_title">What this adds</string>
+    <string name="web_lead_body">DNS filtering already refuses whole tracker domains for every app. Interception goes further inside a browser: it removes ad slots and cosmetic clutter from the page itself, using EasyList rules that need to see the HTML.</string>
     <string name="https_caveat_title">Read this first</string>
     <string name="https_caveat_body">Since Android 7, apps ignore user-installed certificate authorities unless they explicitly opt in. In practice this decrypts Chrome, Edge and Samsung Internet — not Firefox, and not native apps. Everything else still gets DNS-level filtering.</string>
     <string name="https_caveat_warning">Android will show a permanent \"network may be monitored\" warning once the certificate is installed. That is expected.</string>
     <string name="https_ca_title">Root certificate</string>
     <string name="https_ca_ready">A certificate authority unique to this device has been generated. The private key never leaves the device.</string>
     <string name="https_ca_pending">Generated when the tunnel first starts. Connect once, then return here.</string>
+    <string name="https_ca_trusted">Installed — this device trusts the certificate.</string>
+    <string name="https_ca_untrusted">Generated but not installed yet. Interception cannot work until it is.</string>
     <string name="https_install">Install certificate</string>
     <string name="https_settings">Security settings</string>
     <string name="https_intercept">Intercept HTTPS</string>
+    <string name="https_intercept_sub">Off by default. Decrypts only the apps you pick below.</string>
     <string name="https_rules_loaded">%1$d content rules loaded</string>
     <string name="https_apps_title">Apps to intercept</string>
-    <string name="https_apps_sub">Off by default. Anything not listed here keeps working normally with DNS-level filtering only.</string>
+    <string name="https_apps_sub">Anything not listed here keeps working normally with DNS-level filtering only.</string>
+    <string name="https_apps_disabled">Turn on Intercept HTTPS to choose apps.</string>
     <string name="https_no_browsers">No browsers found on this device.</string>
-    <string name="https_pinned">bypassed — rejected our certificate</string>
+    <string name="https_pinned">Bypassed — this app rejected our certificate</string>
+    <string name="https_unpin">Try again</string>
+    <string name="https_unpin_done">%1$s will be intercepted again on its next connection</string>
 
     <!-- Settings -->
     <string name="settings_dns_title">DNS</string>
     <string name="settings_doh">Encrypted DNS (DoH)</string>
     <string name="settings_doh_sub">Resolve over HTTPS so queries are not visible to the local network</string>
     <string name="settings_resolver">Resolver</string>
+    <string name="settings_resolver_edit">Change resolver</string>
+    <string name="settings_resolver_doh_hint">DoH endpoint (https://…)</string>
+    <string name="settings_resolver_udp_hint">Resolver IP address</string>
+    <string name="settings_resolver_note">Must be an IP address, not a hostname: resolving the resolver\'s own name would need the DNS that is being set up.</string>
+    <string name="settings_resolver_invalid_url">Enter an https:// URL whose host is an IP address.</string>
+    <string name="settings_resolver_invalid_ip">Enter a valid IPv4 or IPv6 address.</string>
+    <string name="settings_resolver_saved">Resolver updated</string>
+    <string name="action_save">Save</string>
     <string name="settings_general">General</string>
     <string name="settings_start_on_boot">Start on boot</string>
     <string name="settings_start_on_boot_sub">Bring the tunnel up automatically after a restart</string>
     <string name="settings_block_dot">Block DNS-over-TLS</string>
     <string name="settings_block_dot_sub">Stops apps bypassing filtering with their own encrypted resolver</string>
     <string name="settings_lists">Filter lists</string>
+    <string name="settings_lists_sub">%1$s rules loaded</string>
     <string name="settings_refresh_lists">Refresh now</string>
+    <string name="settings_lists_never">Not downloaded — the bundled list is in use</string>
+    <string name="settings_lists_updated">%1$s · updated %2$s</string>
+    <string name="settings_lists_just_now">just now</string>
+    <plurals name="settings_lists_result">
+        <item quantity="one">%1$d list updated</item>
+        <item quantity="other">%1$d lists updated</item>
+    </plurals>
+    <!-- New lists are not swapped into a running core; they load on the next connect. Said
+         out loud, because otherwise a refresh looks like it changed nothing. -->
+    <plurals name="settings_lists_result_running">
+        <item quantity="one">%1$d list updated — it loads on the next connect</item>
+        <item quantity="other">%1$d lists updated — they load on the next connect</item>
+    </plurals>
+    <string name="settings_lists_failed">Could not download the lists. Check the connection and try again.</string>
     <string name="settings_battery">Ignore battery optimisation</string>
     <string name="settings_battery_sub">Stops the system suspending the tunnel in the background</string>
+    <string name="settings_battery_done">Already exempt</string>
+    <string name="settings_overrides">Domain overrides</string>
+    <string name="settings_overrides_empty">None yet. Tap any row in the log to always allow or always block that domain.</string>
+    <string name="settings_override_allowed">Always allowed</string>
+    <string name="settings_override_blocked">Always blocked</string>
+    <string name="settings_override_removed">Override removed for %1$s</string>
     <string name="settings_data">Data</string>
     <string name="settings_clear_log">Clear request history</string>
+    <string name="settings_clear_log_body">This deletes every stored log entry. Daily totals shown on the Shield screen are kept.</string>
+    <string name="settings_about">About</string>
+    <string name="settings_version">Version</string>
+    <string name="settings_source">Source code</string>
+    <string name="settings_source_url">https://github.com/melvinsh/omnishield</string>
+    <string name="settings_limits_title">What OmniShield does not do</string>
+    <string name="settings_limits_body">It has no account and no server: filtering happens on this device and nothing about your traffic leaves it. It cannot filter inside apps that use HTTPS, except browsers you explicitly opt in on the Web tab. It cannot block ads served from the same domain as the content around them.</string>
+    <string name="settings_show_intro">Show the introduction again</string>
 
     <!-- Onboarding -->
     <string name="onboarding_next">Next</string>
-    <string name="onboarding_done">Get started</string>
-    <string name="onboarding_skip">Skip</string>
+    <string name="onboarding_done">Connect now</string>
+    <string name="onboarding_skip">Not now</string>
+    <string name="onboarding_1_title">Blocks ads and trackers</string>
+    <string name="onboarding_1_body">OmniShield filters DNS for every app on the device, so trackers are refused before a connection is ever made. No root required.</string>
+    <string name="onboarding_2_title">Why it asks for VPN permission</string>
+    <string name="onboarding_2_body">Android only lets an app see network traffic through a VPN interface. OmniShield runs that tunnel locally on your device — nothing is sent to a remote server, and there is no account.</string>
+    <string name="onboarding_3_title">Keep it running</string>
+    <string name="onboarding_3_body">Android may suspend background services to save power. If filtering stops unexpectedly, exempt OmniShield from battery optimisation in Settings.</string>
+    <string name="cd_onboarding_page">Page %1$d of %2$d</string>
 </resources>
