@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+      The launch theme. `Theme.SplashScreen` is required by androidx.core.splashscreen and is
+      swapped for [Theme.OmniShield] by `installSplashScreen()` as the activity starts.
+
+      Without a splash theme the window shows a blank frame while the process, the 900 KB
+      native library and the Room database all come up — which reads as a hang.
+    -->
+    <style name="Theme.OmniShield.Splash" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">@color/splash_background</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/ic_launcher_foreground</item>
+        <item name="postSplashScreenTheme">@style/Theme.OmniShield</item>
+    </style>
+
+    <!--
+      Deliberately a platform theme rather than a Material Components one: the UI is entirely
+      Compose, so an AppCompat/MDC dependency would buy nothing but a heavier APK.
+    -->
+    <style name="Theme.OmniShield" parent="@android:style/Theme.DeviceDefault.DayNight">
+        <item name="android:windowActionBar">false</item>
+        <item name="android:windowNoTitle">true</item>
+    </style>
+</resources>

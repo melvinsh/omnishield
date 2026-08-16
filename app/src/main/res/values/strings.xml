@@ -1,0 +1,99 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">OmniShield</string>
+
+    <!-- Notification -->
+    <string name="notification_channel_name">Tunnel status</string>
+    <string name="notification_channel_description">Shown while the OmniShield tunnel is active.</string>
+    <string name="notification_title">OmniShield is active</string>
+    <string name="notification_text_active">%1$d requests blocked</string>
+    <string name="action_stop">Stop</string>
+    <string name="action_pause_5m">Pause 5 min</string>
+
+    <!-- Navigation -->
+    <string name="tab_shield">Shield</string>
+    <string name="tab_log">Log</string>
+    <string name="tab_apps">Apps</string>
+    <string name="tab_https">HTTPS</string>
+    <string name="tab_settings">Settings</string>
+
+    <!-- Dashboard -->
+    <string name="status_protected">ads &amp; trackers blocked</string>
+    <string name="status_starting">starting tunnel…</string>
+    <string name="status_stopped">not protected</string>
+    <string name="status_paused">filtering paused</string>
+    <string name="status_failed">couldn\'t start</string>
+    <string name="action_connect">Connect</string>
+    <string name="action_disconnect">Disconnect</string>
+    <string name="action_resume">Resume now</string>
+    <string name="action_retry">Try again</string>
+    <string name="block_rate">%1$d%% of %2$d DNS queries</string>
+    <string name="stat_connections">Connections</string>
+    <string name="stat_firewalled">Firewalled</string>
+    <string name="stat_filter_rules">Filter rules</string>
+    <string name="stat_dns_queries">DNS queries</string>
+    <string name="setting_filtering">Filtering</string>
+    <string name="setting_filtering_sub">Sinkhole known ad and tracker domains</string>
+    <string name="setting_quic">Block QUIC</string>
+    <string name="setting_quic_sub">Forces browsers off HTTP/3 so HTTPS can be inspected</string>
+    <string name="doh_degraded">Encrypted DNS unavailable — queries are going out in the clear</string>
+    <string name="pause_title">Pause filtering</string>
+
+    <!-- Log -->
+    <string name="log_blocked_only">Blocked only</string>
+    <string name="log_clear">Clear</string>
+    <string name="log_search">Search domains or apps</string>
+    <string name="log_empty">No requests yet.\nConnect the tunnel and open an app.</string>
+    <string name="log_empty_filtered">Nothing matches that filter.</string>
+    <string name="domain_allow">Always allow</string>
+    <string name="domain_block">Always block</string>
+    <string name="domain_clear_override">Remove override</string>
+
+    <!-- Apps -->
+    <string name="apps_header_app">App</string>
+    <string name="apps_header_wifi">Wi-Fi</string>
+    <string name="apps_header_data">Data</string>
+    <string name="apps_empty">No apps with network access found.</string>
+    <string name="apps_loading">Loading apps…</string>
+    <string name="cd_block_wifi">Block %1$s on Wi-Fi</string>
+    <string name="cd_block_mobile">Block %1$s on mobile data</string>
+
+    <!-- HTTPS -->
+    <string name="https_title">HTTPS filtering</string>
+    <string name="https_caveat_title">Read this first</string>
+    <string name="https_caveat_body">Since Android 7, apps ignore user-installed certificate authorities unless they explicitly opt in. In practice this decrypts Chrome, Edge and Samsung Internet — not Firefox, and not native apps. Everything else still gets DNS-level filtering.</string>
+    <string name="https_caveat_warning">Android will show a permanent \"network may be monitored\" warning once the certificate is installed. That is expected.</string>
+    <string name="https_ca_title">Root certificate</string>
+    <string name="https_ca_ready">A certificate authority unique to this device has been generated. The private key never leaves the device.</string>
+    <string name="https_ca_pending">Generated when the tunnel first starts. Connect once, then return here.</string>
+    <string name="https_install">Install certificate</string>
+    <string name="https_settings">Security settings</string>
+    <string name="https_intercept">Intercept HTTPS</string>
+    <string name="https_rules_loaded">%1$d content rules loaded</string>
+    <string name="https_apps_title">Apps to intercept</string>
+    <string name="https_apps_sub">Off by default. Anything not listed here keeps working normally with DNS-level filtering only.</string>
+    <string name="https_no_browsers">No browsers found on this device.</string>
+    <string name="https_pinned">bypassed — rejected our certificate</string>
+
+    <!-- Settings -->
+    <string name="settings_dns_title">DNS</string>
+    <string name="settings_doh">Encrypted DNS (DoH)</string>
+    <string name="settings_doh_sub">Resolve over HTTPS so queries are not visible to the local network</string>
+    <string name="settings_resolver">Resolver</string>
+    <string name="settings_general">General</string>
+    <string name="settings_start_on_boot">Start on boot</string>
+    <string name="settings_start_on_boot_sub">Bring the tunnel up automatically after a restart</string>
+    <string name="settings_block_dot">Block DNS-over-TLS</string>
+    <string name="settings_block_dot_sub">Stops apps bypassing filtering with their own encrypted resolver</string>
+    <string name="settings_lists">Filter lists</string>
+    <string name="settings_refresh_lists">Refresh now</string>
+    <string name="settings_battery">Ignore battery optimisation</string>
+    <string name="settings_battery_sub">Stops the system suspending the tunnel in the background</string>
+    <string name="settings_data">Data</string>
+    <string name="settings_clear_log">Clear request history</string>
+
+    <!-- Onboarding -->
+    <string name="onboarding_next">Next</string>
+    <string name="onboarding_done">Get started</string>
+    <string name="onboarding_skip">Skip</string>
+</resources>

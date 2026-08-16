@@ -1,0 +1,14 @@
+github.com
+www.github.com
+wikipedia.org
+en.wikipedia.org
+google.com
+www.google.com
+apple.com
+cloudflare.com
+mozilla.org
+stackoverflow.com
+bbc.co.uk
+nytimes.com
+yandex.ru
+facebook.com

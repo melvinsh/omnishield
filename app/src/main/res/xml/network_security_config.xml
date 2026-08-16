@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <!--
+      This governs OmniShield's OWN outbound traffic, not the traffic it filters.
+
+      Trusting the user store in debug builds lets the app's upstream DNS and HTTPS calls be
+      inspected with an external proxy during development. Release builds keep the platform
+      default of system CAs only, so OmniShield's own connections cannot be intercepted by a
+      CA a user was tricked into installing.
+    -->
+    <debug-overrides>
+        <trust-anchors>
+            <certificates src="system" />
+            <certificates src="user" />
+        </trust-anchors>
+    </debug-overrides>
+
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

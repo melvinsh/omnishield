@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+      Launcher-icon background and splash background.
+
+      These are the only fixed colours in the app: an adaptive icon and the pre-Compose splash
+      window are both resolved by the system before any Compose theme exists, so neither can
+      participate in dynamic colour.
+    -->
+    <color name="ic_launcher_background">#1B6E3C</color>
+    <color name="splash_background">#1B6E3C</color>
+</resources>
