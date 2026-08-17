@@ -8,6 +8,20 @@ The release workflow reads the section matching the tag and uses it as the relea
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-08-17
+
+### Fixed
+
+- **HTTPS interception certificate could not be installed.** Since Android 11 an app can no
+  longer hand the system a CA certificate to install, so the old "Install certificate" button
+  silently did nothing. It now saves the certificate to a file you choose and walks you through
+  importing it by hand in Settings, with the Samsung path called out.
+- **Refreshing the filter lists could silently skip one.** A list served by a host that was
+  slow or rate-limiting was reported as a success alongside the others while it quietly failed
+  to update. Lists now download in parallel, a slow or unreachable host is bounded to a short
+  reachability timeout instead of hanging the refresh, and each list reports its own state —
+  downloading, updated, or couldn't reach — with any failure named.
+
 ## [0.2.1] - 2026-08-17
 
 ### Fixed
@@ -60,6 +74,7 @@ OISD plus a bundled starter list, refreshed daily over Wi-Fi.
 Per-ABI APKs for `arm64-v8a` and `x86_64` plus a universal build. Android 10 and later.
 Sideloaded, because Play policy forbids apps that block ads in other apps.
 
-[Unreleased]: https://github.com/melvinsh/omnishield/compare/v0.2.1...HEAD
+[Unreleased]: https://github.com/melvinsh/omnishield/compare/v0.2.2...HEAD
+[0.2.2]: https://github.com/melvinsh/omnishield/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/melvinsh/omnishield/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/melvinsh/omnishield/releases/tag/v0.2.0
