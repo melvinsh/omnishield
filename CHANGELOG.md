@@ -8,6 +8,16 @@ The release workflow reads the section matching the tag and uses it as the relea
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-08-17
+
+### Fixed
+
+- The HTTPS-interception opt-in list only showed the default browser. It now lists every
+  installed browser, so a second browser can be opted in without first making it the default.
+- When a browser is bypassed for not trusting the certificate, the row now says so clearly —
+  that DNS filtering still applies, and that some browsers (Firefox) keep their own certificate
+  store and can't be intercepted at all.
+
 ## [0.3.0] - 2026-08-17
 
 ### Added
@@ -86,7 +96,8 @@ OISD plus a bundled starter list, refreshed daily over Wi-Fi.
 Per-ABI APKs for `arm64-v8a` and `x86_64` plus a universal build. Android 10 and later.
 Sideloaded, because Play policy forbids apps that block ads in other apps.
 
-[Unreleased]: https://github.com/melvinsh/omnishield/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/melvinsh/omnishield/compare/v0.3.1...HEAD
+[0.3.1]: https://github.com/melvinsh/omnishield/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/melvinsh/omnishield/compare/v0.2.2...v0.3.0
 [0.2.2]: https://github.com/melvinsh/omnishield/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/melvinsh/omnishield/compare/v0.2.0...v0.2.1
