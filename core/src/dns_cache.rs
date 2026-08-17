@@ -66,7 +66,13 @@ impl DnsCache {
     /// verbatim would look like a spoofed answer. Both names are the same length — the cache
     /// key is the lowercased name — so the splice cannot disturb any compression pointers in
     /// the answer section.
-    pub fn get(&mut self, query_buf: &[u8], name: &str, qtype: u16, now: Instant) -> Option<Vec<u8>> {
+    pub fn get(
+        &mut self,
+        query_buf: &[u8],
+        name: &str,
+        qtype: u16,
+        now: Instant,
+    ) -> Option<Vec<u8>> {
         let key = (name.to_ascii_lowercase(), qtype);
         let entry = self.entries.get(&key)?;
         if entry.expires <= now {
@@ -119,6 +125,11 @@ impl DnsCache {
     #[allow(dead_code)]
     pub fn len(&self) -> usize {
         self.entries.len()
+    }
+
+    #[allow(dead_code)]
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
     }
 
     #[allow(dead_code)]
@@ -238,7 +249,9 @@ mod tests {
         let now = Instant::now();
         c.put(&response("example.com", 1, 5), now);
         let later = now + Duration::from_secs(6);
-        assert!(c.get(&query("example.com", 2), "example.com", TYPE_A, later).is_none());
+        assert!(c
+            .get(&query("example.com", 2), "example.com", TYPE_A, later)
+            .is_none());
     }
 
     #[test]
@@ -248,7 +261,8 @@ mod tests {
         c.put(&response("example.com", 1, 86_400), now);
         let past_cap = now + MAX_TTL + Duration::from_secs(1);
         assert!(
-            c.get(&query("example.com", 2), "example.com", TYPE_A, past_cap).is_none(),
+            c.get(&query("example.com", 2), "example.com", TYPE_A, past_cap)
+                .is_none(),
             "MAX_TTL must bound a long upstream TTL"
         );
     }
@@ -283,8 +297,13 @@ mod tests {
         let now = Instant::now();
         c.put(&response("example.com", 1, 60), now);
         assert!(
-            c.get(&query("example.com", 2), "example.com", crate::dns::TYPE_AAAA, now)
-                .is_none(),
+            c.get(
+                &query("example.com", 2),
+                "example.com",
+                crate::dns::TYPE_AAAA,
+                now
+            )
+            .is_none(),
             "an A answer must not satisfy an AAAA question"
         );
     }

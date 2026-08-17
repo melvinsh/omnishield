@@ -11,10 +11,9 @@ use std::os::unix::io::RawFd;
 use std::time::Duration;
 
 use smoltcp::phy::ChecksumCapabilities;
-use smoltcp::wire::{
-    IpProtocol, Ipv4Address, Ipv4Packet, Ipv4Repr, Ipv6Address, Ipv6Packet, Ipv6Repr, UdpPacket,
-    UdpRepr,
-};
+// smoltcp 0.13 aliases Ipv4Address/Ipv6Address to std's own types, so a std address goes
+// straight into a repr with no conversion.
+use smoltcp::wire::{IpProtocol, Ipv4Packet, Ipv4Repr, Ipv6Packet, Ipv6Repr, UdpPacket, UdpRepr};
 
 /// Builds a complete IPv4 or IPv6 UDP datagram with valid checksums.
 ///
@@ -28,17 +27,14 @@ pub fn build_udp_packet(
     payload: &[u8],
 ) -> Option<Vec<u8>> {
     let checksum_caps = ChecksumCapabilities::default();
-    let udp_repr = UdpRepr {
-        src_port,
-        dst_port,
-    };
+    let udp_repr = UdpRepr { src_port, dst_port };
     let udp_len = udp_repr.header_len() + payload.len();
 
     match (src, dst) {
         (IpAddr::V4(s), IpAddr::V4(d)) => {
             let ip_repr = Ipv4Repr {
-                src_addr: Ipv4Address::from(s),
-                dst_addr: Ipv4Address::from(d),
+                src_addr: s,
+                dst_addr: d,
                 next_header: IpProtocol::Udp,
                 payload_len: udp_len,
                 hop_limit: 64,
@@ -60,8 +56,8 @@ pub fn build_udp_packet(
         }
         (IpAddr::V6(s), IpAddr::V6(d)) => {
             let ip_repr = Ipv6Repr {
-                src_addr: Ipv6Address::from(s),
-                dst_addr: Ipv6Address::from(d),
+                src_addr: s,
+                dst_addr: d,
                 next_header: IpProtocol::Udp,
                 payload_len: udp_len,
                 hop_limit: 64,
@@ -129,7 +125,10 @@ pub fn sockaddr(addr: &IpAddr, port: u16) -> (libc::sockaddr_storage, libc::sock
                 (*sin).sin_port = port.to_be();
                 (*sin).sin_addr.s_addr = u32::from_ne_bytes(v4.octets());
             }
-            (storage, std::mem::size_of::<libc::sockaddr_in>() as libc::socklen_t)
+            (
+                storage,
+                std::mem::size_of::<libc::sockaddr_in>() as libc::socklen_t,
+            )
         }
         IpAddr::V6(v6) => {
             let sin6 = &mut storage as *mut _ as *mut libc::sockaddr_in6;
@@ -138,7 +137,10 @@ pub fn sockaddr(addr: &IpAddr, port: u16) -> (libc::sockaddr_storage, libc::sock
                 (*sin6).sin6_port = port.to_be();
                 (*sin6).sin6_addr.s6_addr = v6.octets();
             }
-            (storage, std::mem::size_of::<libc::sockaddr_in6>() as libc::socklen_t)
+            (
+                storage,
+                std::mem::size_of::<libc::sockaddr_in6>() as libc::socklen_t,
+            )
         }
     }
 }

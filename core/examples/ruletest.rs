@@ -23,7 +23,11 @@ fn main() {
     let list_count = lists.len();
     let mut filter = ContentFilter::new();
     filter.load(lists);
-    println!("loaded {} rule lines from {} list(s)\n", filter.rules(), list_count);
+    println!(
+        "loaded {} rule lines from {} list(s)\n",
+        filter.rules(),
+        list_count
+    );
 
     // (url, source_url, request_type)
     let probes = [
@@ -95,8 +99,15 @@ fn main() {
     println!("can we hide the cosmetic test's bait element?");
     let mut any = false;
     for sel in [
-        ".textads", ".banner-ads", ".banner_ads", ".ad-unit", ".afs_ads", ".ad-zone",
-        ".ad-space", ".adsbox", "#ad_ctd",
+        ".textads",
+        ".banner-ads",
+        ".banner_ads",
+        ".ad-unit",
+        ".afs_ads",
+        ".ad-zone",
+        ".ad-space",
+        ".adsbox",
+        "#ad_ctd",
     ] {
         let hit = css.contains(sel);
         any |= hit;

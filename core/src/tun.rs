@@ -238,7 +238,11 @@ mod tests {
         let out = d.pop_tx().unwrap();
         assert_eq!(out.len(), 64);
         assert!(out.iter().all(|&b| b == 0xAB));
-        assert_eq!(out.as_ptr(), addr, "should have reused the pooled allocation");
+        assert_eq!(
+            out.as_ptr(),
+            addr,
+            "should have reused the pooled allocation"
+        );
     }
 
     #[test]

@@ -121,7 +121,9 @@ pub fn parse_response(buf: &[u8]) -> Result<Option<Vec<u8>>, &'static str> {
     let mut content_length: Option<usize> = None;
     for h in res.headers.iter() {
         if h.name.eq_ignore_ascii_case("content-length") {
-            content_length = std::str::from_utf8(h.value).ok().and_then(|v| v.trim().parse().ok());
+            content_length = std::str::from_utf8(h.value)
+                .ok()
+                .and_then(|v| v.trim().parse().ok());
         } else if h.name.eq_ignore_ascii_case("transfer-encoding")
             && std::str::from_utf8(h.value)
                 .map(|v| v.to_ascii_lowercase().contains("chunked"))
@@ -148,7 +150,9 @@ pub use transport::*;
 
 #[cfg(target_os = "android")]
 mod transport {
-    use super::{build_request, parse_response, DohEndpoint, CONNECT_TIMEOUT, IO_TIMEOUT, MAX_RESPONSE};
+    use super::{
+        build_request, parse_response, DohEndpoint, CONNECT_TIMEOUT, IO_TIMEOUT, MAX_RESPONSE,
+    };
     use crate::jvm::JavaBridge;
     use crate::net;
     use rustls::pki_types::ServerName;
@@ -159,187 +163,193 @@ mod transport {
     use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
     use std::sync::Arc;
 
-pub struct DohRequest {
-    pub token: u64,
-    pub query: Vec<u8>,
-}
+    pub struct DohRequest {
+        pub token: u64,
+        pub query: Vec<u8>,
+    }
 
-pub struct DohAnswer {
-    pub token: u64,
-    /// `None` when DoH failed and the caller should fall back to plaintext UDP.
-    pub answer: Option<Vec<u8>>,
-}
+    pub struct DohAnswer {
+        pub token: u64,
+        /// `None` when DoH failed and the caller should fall back to plaintext UDP.
+        pub answer: Option<Vec<u8>>,
+    }
 
-/// Handle held by the tunnel thread.
-pub struct DohResolver {
-    tx: Sender<DohRequest>,
-    rx: Receiver<DohAnswer>,
-    degraded: Arc<AtomicBool>,
-}
+    /// Handle held by the tunnel thread.
+    pub struct DohResolver {
+        tx: Sender<DohRequest>,
+        rx: Receiver<DohAnswer>,
+        degraded: Arc<AtomicBool>,
+    }
 
-impl DohResolver {
-    /// `waker` is how an answer reaches a sleeping tunnel loop.
-    ///
-    /// Answers arrive on an mpsc channel that the loop only drains when it happens to be
-    /// awake. That was fine when it woke five times a second regardless; now that it sleeps
-    /// until something happens, an unannounced answer would sit in the channel until an
-    /// unrelated packet arrived — every DNS lookup would appear to hang.
-    pub fn start(
+    impl DohResolver {
+        /// `waker` is how an answer reaches a sleeping tunnel loop.
+        ///
+        /// Answers arrive on an mpsc channel that the loop only drains when it happens to be
+        /// awake. That was fine when it woke five times a second regardless; now that it sleeps
+        /// until something happens, an unannounced answer would sit in the channel until an
+        /// unrelated packet arrived — every DNS lookup would appear to hang.
+        pub fn start(
+            endpoint: DohEndpoint,
+            jvm: Arc<JavaBridge>,
+            degraded: Arc<AtomicBool>,
+            waker: Option<Arc<crate::wake::Waker>>,
+        ) -> Self {
+            let (req_tx, req_rx) = mpsc::channel::<DohRequest>();
+            let (ans_tx, ans_rx) = mpsc::channel::<DohAnswer>();
+
+            let worker_degraded = Arc::clone(&degraded);
+            std::thread::Builder::new()
+                .name("omnishield-doh".into())
+                .spawn(move || worker(endpoint, jvm, req_rx, ans_tx, worker_degraded, waker))
+                .ok();
+
+            Self {
+                tx: req_tx,
+                rx: ans_rx,
+                degraded,
+            }
+        }
+
+        /// Queues a query. Returns false if the worker has died, so the caller can fall back.
+        pub fn submit(&self, token: u64, query: Vec<u8>) -> bool {
+            self.tx.send(DohRequest { token, query }).is_ok()
+        }
+
+        /// Non-blocking drain, called once per tunnel loop iteration.
+        pub fn poll(&self) -> Vec<DohAnswer> {
+            let mut out = Vec::new();
+            loop {
+                match self.rx.try_recv() {
+                    Ok(a) => out.push(a),
+                    Err(TryRecvError::Empty) | Err(TryRecvError::Disconnected) => break,
+                }
+            }
+            out
+        }
+
+        pub fn is_degraded(&self) -> bool {
+            self.degraded.load(Ordering::Relaxed)
+        }
+    }
+
+    fn worker(
         endpoint: DohEndpoint,
         jvm: Arc<JavaBridge>,
+        requests: Receiver<DohRequest>,
+        answers: Sender<DohAnswer>,
         degraded: Arc<AtomicBool>,
         waker: Option<Arc<crate::wake::Waker>>,
-    ) -> Self {
-        let (req_tx, req_rx) = mpsc::channel::<DohRequest>();
-        let (ans_tx, ans_rx) = mpsc::channel::<DohAnswer>();
+    ) {
+        let config = crate::mitm::client_config();
+        let mut stream: Option<StreamOwned<ClientConnection, std::net::TcpStream>> = None;
 
-        let worker_degraded = Arc::clone(&degraded);
-        std::thread::Builder::new()
-            .name("omnishield-doh".into())
-            .spawn(move || worker(endpoint, jvm, req_rx, ans_tx, worker_degraded, waker))
-            .ok();
+        while let Ok(req) = requests.recv() {
+            // One retry: a pooled connection the server closed between queries is the common
+            // case, and failing the query for it would be needlessly fragile.
+            let mut answer = None;
+            for attempt in 0..2 {
+                if stream.is_none() {
+                    stream = connect(&endpoint, &jvm, &config);
+                }
+                let Some(s) = stream.as_mut() else { break };
 
-        Self {
-            tx: req_tx,
-            rx: ans_rx,
-            degraded,
+                match exchange(s, &endpoint, &req.query) {
+                    Ok(bytes) => {
+                        answer = Some(bytes);
+                        break;
+                    }
+                    Err(e) => {
+                        log::debug!("doh exchange failed (attempt {attempt}): {e}");
+                        stream = None;
+                    }
+                }
+            }
+
+            if answer.is_none() {
+                // Raise the flag but keep serving: the caller falls back to plaintext UDP so
+                // resolution still works, and the UI tells the user it is no longer encrypted.
+                if !degraded.swap(true, Ordering::Relaxed) {
+                    log::warn!("DoH unavailable; falling back to plaintext UDP");
+                }
+            } else {
+                degraded.store(false, Ordering::Relaxed);
+            }
+
+            if answers
+                .send(DohAnswer {
+                    token: req.token,
+                    answer,
+                })
+                .is_err()
+            {
+                break; // tunnel gone
+            }
+            // Announce it. The send above only queues; the loop has to be running to drain it.
+            if let Some(w) = &waker {
+                w.wake();
+            }
         }
+        log::info!("doh worker finished");
     }
 
-    /// Queues a query. Returns false if the worker has died, so the caller can fall back.
-    pub fn submit(&self, token: u64, query: Vec<u8>) -> bool {
-        self.tx.send(DohRequest { token, query }).is_ok()
+    fn connect(
+        endpoint: &DohEndpoint,
+        jvm: &Arc<JavaBridge>,
+        config: &Arc<rustls::ClientConfig>,
+    ) -> Option<StreamOwned<ClientConnection, std::net::TcpStream>> {
+        let fd: RawFd = net::new_blocking_socket(&endpoint.addr, libc::SOCK_STREAM).ok()?;
+
+        // Must escape the tunnel, or our own DoH traffic would be routed back into the TUN.
+        if !jvm.protect(fd) {
+            unsafe { libc::close(fd) };
+            log::warn!("protect() failed for the DoH socket");
+            return None;
+        }
+        net::set_timeouts(fd, CONNECT_TIMEOUT, IO_TIMEOUT).ok()?;
+
+        let (sa, len) = net::sockaddr(&endpoint.addr, endpoint.port);
+        let rc = unsafe { libc::connect(fd, &sa as *const _ as *const libc::sockaddr, len) };
+        if rc < 0 {
+            unsafe { libc::close(fd) };
+            return None;
+        }
+
+        let tcp = unsafe { std::net::TcpStream::from_raw_fd(fd) };
+        // ServerName accepts an IP literal and rustls will then require a matching IP SAN, which
+        // is exactly the verification we want for an IP-addressed endpoint.
+        let name = ServerName::try_from(endpoint.host.clone()).ok()?;
+        let conn = ClientConnection::new(Arc::clone(config), name).ok()?;
+        Some(StreamOwned::new(conn, tcp))
     }
 
-    /// Non-blocking drain, called once per tunnel loop iteration.
-    pub fn poll(&self) -> Vec<DohAnswer> {
-        let mut out = Vec::new();
+    fn exchange(
+        stream: &mut StreamOwned<ClientConnection, std::net::TcpStream>,
+        endpoint: &DohEndpoint,
+        query: &[u8],
+    ) -> Result<Vec<u8>, String> {
+        stream
+            .write_all(&build_request(endpoint, query))
+            .map_err(|e| e.to_string())?;
+        stream.flush().map_err(|e| e.to_string())?;
+
+        let mut buf = Vec::with_capacity(2048);
+        let mut chunk = [0u8; 4096];
         loop {
-            match self.rx.try_recv() {
-                Ok(a) => out.push(a),
-                Err(TryRecvError::Empty) | Err(TryRecvError::Disconnected) => break,
+            match parse_response(&buf) {
+                Ok(Some(answer)) => return Ok(answer),
+                Ok(None) => {}
+                Err(e) => return Err(e.to_string()),
+            }
+            let n = stream.read(&mut chunk).map_err(|e| e.to_string())?;
+            if n == 0 {
+                return Err("connection closed before a complete response".into());
+            }
+            buf.extend_from_slice(&chunk[..n]);
+            if buf.len() > MAX_RESPONSE {
+                return Err("response too large".into());
             }
         }
-        out
     }
-
-    pub fn is_degraded(&self) -> bool {
-        self.degraded.load(Ordering::Relaxed)
-    }
-}
-
-fn worker(
-    endpoint: DohEndpoint,
-    jvm: Arc<JavaBridge>,
-    requests: Receiver<DohRequest>,
-    answers: Sender<DohAnswer>,
-    degraded: Arc<AtomicBool>,
-    waker: Option<Arc<crate::wake::Waker>>,
-) {
-    let config = crate::mitm::client_config();
-    let mut stream: Option<StreamOwned<ClientConnection, std::net::TcpStream>> = None;
-
-    while let Ok(req) = requests.recv() {
-        // One retry: a pooled connection the server closed between queries is the common
-        // case, and failing the query for it would be needlessly fragile.
-        let mut answer = None;
-        for attempt in 0..2 {
-            if stream.is_none() {
-                stream = connect(&endpoint, &jvm, &config);
-            }
-            let Some(s) = stream.as_mut() else { break };
-
-            match exchange(s, &endpoint, &req.query) {
-                Ok(bytes) => {
-                    answer = Some(bytes);
-                    break;
-                }
-                Err(e) => {
-                    log::debug!("doh exchange failed (attempt {attempt}): {e}");
-                    stream = None;
-                }
-            }
-        }
-
-        if answer.is_none() {
-            // Raise the flag but keep serving: the caller falls back to plaintext UDP so
-            // resolution still works, and the UI tells the user it is no longer encrypted.
-            if !degraded.swap(true, Ordering::Relaxed) {
-                log::warn!("DoH unavailable; falling back to plaintext UDP");
-            }
-        } else {
-            degraded.store(false, Ordering::Relaxed);
-        }
-
-        if answers.send(DohAnswer { token: req.token, answer }).is_err() {
-            break; // tunnel gone
-        }
-        // Announce it. The send above only queues; the loop has to be running to drain it.
-        if let Some(w) = &waker {
-            w.wake();
-        }
-    }
-    log::info!("doh worker finished");
-}
-
-fn connect(
-    endpoint: &DohEndpoint,
-    jvm: &Arc<JavaBridge>,
-    config: &Arc<rustls::ClientConfig>,
-) -> Option<StreamOwned<ClientConnection, std::net::TcpStream>> {
-    let fd: RawFd = net::new_blocking_socket(&endpoint.addr, libc::SOCK_STREAM).ok()?;
-
-    // Must escape the tunnel, or our own DoH traffic would be routed back into the TUN.
-    if !jvm.protect(fd) {
-        unsafe { libc::close(fd) };
-        log::warn!("protect() failed for the DoH socket");
-        return None;
-    }
-    net::set_timeouts(fd, CONNECT_TIMEOUT, IO_TIMEOUT).ok()?;
-
-    let (sa, len) = net::sockaddr(&endpoint.addr, endpoint.port);
-    let rc = unsafe { libc::connect(fd, &sa as *const _ as *const libc::sockaddr, len) };
-    if rc < 0 {
-        unsafe { libc::close(fd) };
-        return None;
-    }
-
-    let tcp = unsafe { std::net::TcpStream::from_raw_fd(fd) };
-    // ServerName accepts an IP literal and rustls will then require a matching IP SAN, which
-    // is exactly the verification we want for an IP-addressed endpoint.
-    let name = ServerName::try_from(endpoint.host.clone()).ok()?;
-    let conn = ClientConnection::new(Arc::clone(config), name).ok()?;
-    Some(StreamOwned::new(conn, tcp))
-}
-
-fn exchange(
-    stream: &mut StreamOwned<ClientConnection, std::net::TcpStream>,
-    endpoint: &DohEndpoint,
-    query: &[u8],
-) -> Result<Vec<u8>, String> {
-    stream
-        .write_all(&build_request(endpoint, query))
-        .map_err(|e| e.to_string())?;
-    stream.flush().map_err(|e| e.to_string())?;
-
-    let mut buf = Vec::with_capacity(2048);
-    let mut chunk = [0u8; 4096];
-    loop {
-        match parse_response(&buf) {
-            Ok(Some(answer)) => return Ok(answer),
-            Ok(None) => {}
-            Err(e) => return Err(e.to_string()),
-        }
-        let n = stream.read(&mut chunk).map_err(|e| e.to_string())?;
-        if n == 0 {
-            return Err("connection closed before a complete response".into());
-        }
-        buf.extend_from_slice(&chunk[..n]);
-        if buf.len() > MAX_RESPONSE {
-            return Err("response too large".into());
-        }
-    }
-}
 } // mod transport
 
 #[cfg(test)]
@@ -365,7 +375,10 @@ mod tests {
     fn rejects_hostname_endpoints() {
         // Resolving the resolver would need DNS, which is the thing being set up.
         assert!(parse("https://cloudflare-dns.com/dns-query").is_none());
-        assert!(parse("http://1.1.1.1/dns-query").is_none(), "plaintext is not DoH");
+        assert!(
+            parse("http://1.1.1.1/dns-query").is_none(),
+            "plaintext is not DoH"
+        );
         assert!(parse("1.1.1.1/dns-query").is_none());
     }
 
@@ -401,17 +414,16 @@ mod tests {
 
     #[test]
     fn rejects_unusable_responses() {
-        let err = parse_response(
-            b"HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\n\r\n",
-        );
+        let err = parse_response(b"HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\n\r\n");
         assert!(err.is_err(), "non-2xx must not be treated as an answer");
 
-        let chunked = parse_response(
-            b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n",
-        );
+        let chunked = parse_response(b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n");
         assert!(chunked.is_err());
 
         let no_len = parse_response(b"HTTP/1.1 200 OK\r\nContent-Type: x\r\n\r\n");
-        assert!(no_len.is_err(), "a body of unknown length would hang the worker");
+        assert!(
+            no_len.is_err(),
+            "a body of unknown length would hang the worker"
+        );
     }
 }

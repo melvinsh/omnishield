@@ -323,7 +323,11 @@ pub extern "system" fn Java_io_omnishield_bridge_NativeBridge_nativeClearFilters
         if let Ok(mut f) = runtime.shared.filter.write() {
             f.clear();
         }
-        runtime.shared.stats.filter_rules.store(0, Ordering::Relaxed);
+        runtime
+            .shared
+            .stats
+            .filter_rules
+            .store(0, Ordering::Relaxed);
     }
 }
 

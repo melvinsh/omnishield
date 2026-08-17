@@ -119,7 +119,9 @@ impl DomainSet {
         }
         let blob_len = u64::from_le_bytes(buf[0..8].try_into().ok()?) as usize;
         let off_len = u64::from_le_bytes(buf[8..16].try_into().ok()?) as usize;
-        let need = 16usize.checked_add(blob_len)?.checked_add(off_len.checked_mul(4)?)?;
+        let need = 16usize
+            .checked_add(blob_len)?
+            .checked_add(off_len.checked_mul(4)?)?;
         if buf.len() < need {
             return None;
         }
@@ -291,7 +293,8 @@ impl DomainFilter {
     /// separately on every start, and are tiny. Caching them here would create a second source
     /// of truth for the one thing the user directly controls.
     pub fn to_cache_bytes(&self) -> Vec<u8> {
-        let mut out = Vec::with_capacity(self.blocked.heap_bytes() + self.allowed.heap_bytes() + 32);
+        let mut out =
+            Vec::with_capacity(self.blocked.heap_bytes() + self.allowed.heap_bytes() + 32);
         out.extend_from_slice(&(self.blocked.len() as u64).to_le_bytes());
         self.blocked.write_to(&mut out);
         self.allowed.write_to(&mut out);
@@ -407,8 +410,7 @@ fn is_plausible_domain(d: &str) -> bool {
     !d.is_empty()
         && d.len() <= 253
         && d.contains('.')
-        && d
-            .bytes()
+        && d.bytes()
             .all(|b| b.is_ascii_alphanumeric() || b == b'.' || b == b'-' || b == b'_')
 }
 
@@ -420,7 +422,10 @@ mod tests {
     fn blocks_exact_and_subdomains() {
         let mut f = DomainFilter::new();
         f.load_list("||doubleclick.net^");
-        assert_eq!(f.lookup("doubleclick.net"), Verdict::Block("doubleclick.net".into()));
+        assert_eq!(
+            f.lookup("doubleclick.net"),
+            Verdict::Block("doubleclick.net".into())
+        );
         assert_eq!(
             f.lookup("ad.g.doubleclick.net"),
             Verdict::Block("doubleclick.net".into())
@@ -444,7 +449,11 @@ mod tests {
         );
         assert_eq!(n, 2);
         assert!(matches!(f.lookup("ads.example.com"), Verdict::Block(_)));
-        assert_eq!(f.lookup("localhost"), Verdict::Allow, "localhost must never be sunk");
+        assert_eq!(
+            f.lookup("localhost"),
+            Verdict::Allow,
+            "localhost must never be sunk"
+        );
     }
 
     #[test]
@@ -491,7 +500,10 @@ mod tests {
         f.load_list("||a.com^\n||b.com^");
         f.load_list("||c.com^");
         for d in ["a.com", "b.com", "c.com"] {
-            assert!(matches!(f.lookup(d), Verdict::Block(_)), "{d} should be blocked");
+            assert!(
+                matches!(f.lookup(d), Verdict::Block(_)),
+                "{d} should be blocked"
+            );
         }
         assert_eq!(f.len(), 3);
     }
@@ -518,7 +530,11 @@ mod tests {
             Verdict::Allow,
             "an explicit user allow must override a downloaded rule"
         );
-        assert_eq!(f.lookup("cdn.tracker.com"), Verdict::Allow, "and its subdomains");
+        assert_eq!(
+            f.lookup("cdn.tracker.com"),
+            Verdict::Allow,
+            "and its subdomains"
+        );
     }
 
     #[test]
@@ -544,7 +560,11 @@ mod tests {
         let mut f = DomainFilter::new();
         f.set_user_rules([("a.com".to_string(), true)]);
         f.set_user_rules([("b.com".to_string(), true)]);
-        assert_eq!(f.user_rule_count(), 1, "removing an override must actually remove it");
+        assert_eq!(
+            f.user_rule_count(),
+            1,
+            "removing an override must actually remove it"
+        );
     }
 
     // -- compact storage ----------------------------------------------------
@@ -568,7 +588,10 @@ mod tests {
         assert_eq!(f.len(), reference.len());
 
         for d in &reference {
-            assert!(matches!(f.lookup(d), Verdict::Block(_)), "{d} should be blocked");
+            assert!(
+                matches!(f.lookup(d), Verdict::Block(_)),
+                "{d} should be blocked"
+            );
         }
         for i in 0..2_000 {
             let miss = format!("absent{i}.example.org");
@@ -671,8 +694,18 @@ mod cache_tests {
         staged.commit();
 
         assert_eq!(one_at_a_time.len(), staged.len());
-        for name in ["a.example.com", "b.example.com", "c.example.com", "d.example.com", "e.example.com"] {
-            assert_eq!(one_at_a_time.lookup(name), staged.lookup(name), "diverged for {name}");
+        for name in [
+            "a.example.com",
+            "b.example.com",
+            "c.example.com",
+            "d.example.com",
+            "e.example.com",
+        ] {
+            assert_eq!(
+                one_at_a_time.lookup(name),
+                staged.lookup(name),
+                "diverged for {name}"
+            );
         }
     }
 
@@ -695,7 +728,10 @@ mod cache_tests {
         let n = bytes.len();
         bytes[n - 4..].copy_from_slice(&0u32.to_le_bytes());
         let mut f = DomainFilter::new();
-        assert!(!f.load_cache_bytes(&bytes), "offsets that do not end at blob_len are corrupt");
+        assert!(
+            !f.load_cache_bytes(&bytes),
+            "offsets that do not end at blob_len are corrupt"
+        );
     }
 
     #[test]

@@ -1,0 +1,8 @@
+# Pins the compiler so CI, every contributor and every release build the core identically.
+# `Cargo.toml` declares `rust-version = "1.77"` as the floor the source needs; this is the
+# version actually used. rustup installs it, and both Android targets, on first invocation.
+[toolchain]
+channel = "1.97.1"
+targets = ["aarch64-linux-android", "x86_64-linux-android"]
+components = ["rustfmt", "clippy"]
+profile = "minimal"

@@ -40,10 +40,10 @@ use crate::config::Config;
 use crate::content::ContentFilter;
 use crate::dns;
 use crate::dns_cache::DnsCache;
-use crate::mitm::{self, MitmSession};
 use crate::events::{Event, EventLog, Stats};
 use crate::filter::{DomainFilter, Verdict};
 use crate::jvm::JavaBridge;
+use crate::mitm::{self, MitmSession};
 use crate::net;
 use crate::packet::{self, PROTO_TCP, PROTO_UDP};
 use crate::tun::TunDevice;
@@ -150,7 +150,10 @@ impl Shared {
     }
 
     pub fn ca_pem(&self) -> String {
-        self.ca.as_ref().map(|c| c.ca_pem().to_string()).unwrap_or_default()
+        self.ca
+            .as_ref()
+            .map(|c| c.ca_pem().to_string())
+            .unwrap_or_default()
     }
 }
 
@@ -774,7 +777,16 @@ fn handle_dns(
                 dst: e.dst,
                 dst_port: e.dst_port,
             };
-            forward_dns_upstream(pkt, info, shared, jvm, udp, tuple, dns_up, (-1, Arc::from("")));
+            forward_dns_upstream(
+                pkt,
+                info,
+                shared,
+                jvm,
+                udp,
+                tuple,
+                dns_up,
+                (-1, Arc::from("")),
+            );
             return;
         }
     };
@@ -802,9 +814,7 @@ fn handle_dns(
 
         let reply = dns::nxdomain_response(payload, &query);
         // The reply must appear to come from the address the app queried.
-        if let Some(frame) =
-            net::build_udp_packet(e.dst, e.dst_port, e.src, e.src_port, &reply)
-        {
+        if let Some(frame) = net::build_udp_packet(e.dst, e.dst_port, e.src, e.src_port, &reply) {
             device.inject_tx(frame);
         }
         return;
@@ -829,9 +839,7 @@ fn handle_dns(
         .push(Event::new("dns", query.name, uid, app, false, ""));
 
     if let Some(reply) = cached {
-        if let Some(frame) =
-            net::build_udp_packet(e.dst, e.dst_port, e.src, e.src_port, &reply)
-        {
+        if let Some(frame) = net::build_udp_packet(e.dst, e.dst_port, e.src, e.src_port, &reply) {
             device.inject_tx(frame);
             return;
         }
@@ -945,13 +953,9 @@ fn drain_doh(
                     .unwrap_or_else(|p| p.into_inner())
                     .put(&bytes, StdInstant::now());
                 // The reply must appear to come from the address the app queried.
-                if let Some(frame) = net::build_udp_packet(
-                    p.orig_dst,
-                    p.orig_port,
-                    p.app_addr,
-                    p.app_port,
-                    &bytes,
-                ) {
+                if let Some(frame) =
+                    net::build_udp_packet(p.orig_dst, p.orig_port, p.app_addr, p.app_port, &bytes)
+                {
                     device.inject_tx(frame);
                 }
             }
@@ -1351,7 +1355,10 @@ fn pump_mitm(
         }
         shared.events.push(Event::new(
             "tls",
-            session.sni.clone().unwrap_or_else(|| conn.remote.to_string()),
+            session
+                .sni
+                .clone()
+                .unwrap_or_else(|| conn.remote.to_string()),
             uid,
             conn.app.clone(),
             false,

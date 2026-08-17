@@ -131,7 +131,8 @@ impl Config {
 
     /// First upstream resolver, already parsed. Re-parsed per DNS query before this existed.
     pub fn upstream_addr(&self) -> IpAddr {
-        self.upstream.unwrap_or(IpAddr::V4(Ipv4Addr::new(1, 1, 1, 1)))
+        self.upstream
+            .unwrap_or(IpAddr::V4(Ipv4Addr::new(1, 1, 1, 1)))
     }
 
     /// Fills the derived fields. Must be called on any config that reaches the packet path.

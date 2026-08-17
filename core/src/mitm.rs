@@ -230,7 +230,11 @@ impl MitmSession {
             return; // headers still incomplete
         };
         let sni = self.sni.clone().unwrap_or_default();
-        let host = if head.host.is_empty() { sni.clone() } else { head.host.clone() };
+        let host = if head.host.is_empty() {
+            sni.clone()
+        } else {
+            head.host.clone()
+        };
         let url = format!("https://{host}{}", head.path);
         let source = format!("https://{host}/");
 
@@ -279,7 +283,12 @@ impl MitmSession {
             "mitm resp sni={:?} bytes={} head={:?}",
             self.sni,
             self.resp_buf.len(),
-            self.resp_head.as_ref().map(|h| (h.status, h.content_type.clone(), h.is_chunked(), h.content_encoding.clone()))
+            self.resp_head.as_ref().map(|h| (
+                h.status,
+                h.content_type.clone(),
+                h.is_chunked(),
+                h.content_encoding.clone()
+            ))
         );
 
         let Some(head) = self.resp_head.clone() else {
@@ -387,8 +396,12 @@ fn request_type_for(path: &str) -> &'static str {
         "script"
     } else if p.ends_with(".css") {
         "stylesheet"
-    } else if p.ends_with(".png") || p.ends_with(".jpg") || p.ends_with(".jpeg")
-        || p.ends_with(".gif") || p.ends_with(".webp") || p.ends_with(".svg")
+    } else if p.ends_with(".png")
+        || p.ends_with(".jpg")
+        || p.ends_with(".jpeg")
+        || p.ends_with(".gif")
+        || p.ends_with(".webp")
+        || p.ends_with(".svg")
     {
         "image"
     } else if p.ends_with(".woff") || p.ends_with(".woff2") || p.ends_with(".ttf") {

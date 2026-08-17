@@ -13,8 +13,8 @@ use std::sync::{Arc, Mutex};
 
 use lru::LruCache;
 use rcgen::{
-    BasicConstraints, CertificateParams, DistinguishedName, DnType, ExtendedKeyUsagePurpose,
-    IsCa, Issuer, KeyPair, KeyUsagePurpose,
+    BasicConstraints, CertificateParams, DistinguishedName, DnType, ExtendedKeyUsagePurpose, IsCa,
+    Issuer, KeyPair, KeyUsagePurpose,
 };
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
 use rustls::sign::CertifiedKey;
@@ -132,8 +132,8 @@ impl CertAuthority {
             .map_err(|e| e.to_string())?;
 
         let key_der = PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(leaf_key.serialize_der()));
-        let signing_key = rustls::crypto::ring::sign::any_supported_type(&key_der)
-            .map_err(|e| e.to_string())?;
+        let signing_key =
+            rustls::crypto::ring::sign::any_supported_type(&key_der).map_err(|e| e.to_string())?;
 
         // The chain must include the CA itself, or clients that only pinned the root will
         // fail to build a path.
@@ -165,8 +165,7 @@ fn pem_to_der(pem: &str) -> Result<CertificateDer<'static>, String> {
 
 /// Minimal base64 decoder — avoids pulling a crate in for one call site.
 fn base64_decode(input: &str) -> Result<Vec<u8>, String> {
-    const TABLE: &[u8; 64] =
-        b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut lookup = [255u8; 256];
     for (i, &c) in TABLE.iter().enumerate() {
         lookup[c as usize] = i as u8;

@@ -9,7 +9,9 @@ use omnishield_core::filter::{DomainFilter, Verdict};
 
 fn main() {
     let mut args = std::env::args().skip(1);
-    let hosts_path = args.next().expect("usage: dnstest <hosts.txt> <list.txt> ...");
+    let hosts_path = args
+        .next()
+        .expect("usage: dnstest <hosts.txt> <list.txt> ...");
     let list_paths: Vec<String> = args.collect();
     assert!(!list_paths.is_empty(), "at least one blocklist is required");
 

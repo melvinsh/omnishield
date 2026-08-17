@@ -153,7 +153,7 @@ fn read_name(buf: &[u8], start: usize) -> Option<(String, usize)> {
             if jumps > 16 {
                 return None; // cyclic or absurdly chained compression
             }
-            let ptr = (((len & 0x3f) as usize) << 8) | buf[pos + 1] as usize;
+            let ptr = ((len & 0x3f) << 8) | buf[pos + 1] as usize;
             if end_of_name.is_none() {
                 end_of_name = Some(pos + 2);
             }

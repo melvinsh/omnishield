@@ -106,7 +106,9 @@ impl ContentFilter {
         if resources.hide_selectors.is_empty() {
             return None;
         }
-        Some(build_css(resources.hide_selectors.iter().map(String::as_str)))
+        Some(build_css(
+            resources.hide_selectors.iter().map(String::as_str),
+        ))
     }
 
     /// Hiding rules for `url`, including the **generic** ones that apply to `html`.
@@ -204,8 +206,12 @@ fn collect_class_ids(html: &[u8]) -> (Vec<String>, Vec<String>) {
         let _ = rewriter.end();
     }
 
-    let classes = Rc::try_unwrap(classes).map(RefCell::into_inner).unwrap_or_default();
-    let ids = Rc::try_unwrap(ids).map(RefCell::into_inner).unwrap_or_default();
+    let classes = Rc::try_unwrap(classes)
+        .map(RefCell::into_inner)
+        .unwrap_or_default();
+    let ids = Rc::try_unwrap(ids)
+        .map(RefCell::into_inner)
+        .unwrap_or_default();
     (classes.into_iter().collect(), ids.into_iter().collect())
 }
 
@@ -425,9 +431,7 @@ pub fn inject_css(html: &[u8], css: &str) -> Option<Vec<u8>> {
     }));
 
     let mut output = Vec::with_capacity(html.len() + style.len());
-    let mut rewriter = HtmlRewriter::new(settings, |chunk: &[u8]| {
-        output.extend_from_slice(chunk)
-    });
+    let mut rewriter = HtmlRewriter::new(settings, |chunk: &[u8]| output.extend_from_slice(chunk));
 
     if rewriter.write(html).is_err() {
         return None;
@@ -494,8 +498,16 @@ mod tests {
     fn blocks_by_path_rule() {
         let mut f = ContentFilter::new();
         f.load(vec!["||example.com/ads/*".to_string()]);
-        assert!(f.blocks("https://example.com/ads/track.gif", "https://example.com/", "image"));
-        assert!(!f.blocks("https://example.com/img/logo.png", "https://example.com/", "image"));
+        assert!(f.blocks(
+            "https://example.com/ads/track.gif",
+            "https://example.com/",
+            "image"
+        ));
+        assert!(!f.blocks(
+            "https://example.com/img/logo.png",
+            "https://example.com/",
+            "image"
+        ));
     }
 
     #[test]
@@ -517,7 +529,10 @@ mod tests {
         let out = String::from_utf8(rewrite_request(raw, &head)).unwrap();
         assert!(out.contains("Connection: close"));
         assert!(out.contains("Accept-Encoding: gzip, deflate"));
-        assert!(!out.contains("br, zstd"), "brotli/zstd must be negotiated away");
+        assert!(
+            !out.contains("br, zstd"),
+            "brotli/zstd must be negotiated away"
+        );
         assert!(!out.contains("keep-alive"));
     }
 
@@ -563,7 +578,10 @@ mod tests {
 
     #[test]
     fn dechunk_handles_extensions_and_empty_body() {
-        assert_eq!(dechunk(b"4;name=value\r\nWiki\r\n0\r\n\r\n").unwrap(), b"Wiki");
+        assert_eq!(
+            dechunk(b"4;name=value\r\nWiki\r\n0\r\n\r\n").unwrap(),
+            b"Wiki"
+        );
         assert_eq!(dechunk(b"0\r\n\r\n").unwrap(), b"");
     }
 
@@ -578,7 +596,8 @@ mod tests {
 
     #[test]
     fn detects_chunked_header() {
-        let raw = b"HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nTransfer-Encoding: chunked\r\n\r\n";
+        let raw =
+            b"HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nTransfer-Encoding: chunked\r\n\r\n";
         assert!(parse_response(raw).unwrap().is_chunked());
         let plain = b"HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n";
         assert!(!parse_response(plain).unwrap().is_chunked());
@@ -663,6 +682,9 @@ mod cache_tests {
         let mut f = ContentFilter::new();
         assert!(!f.load_cache_bytes(&[]), "empty");
         assert!(!f.load_cache_bytes(&[0u8; 4]), "too short for the header");
-        assert!(!f.load_cache_bytes(&[0u8; 64]), "header but garbage payload");
+        assert!(
+            !f.load_cache_bytes(&[0u8; 64]),
+            "header but garbage payload"
+        );
     }
 }

@@ -117,7 +117,10 @@ mod tests {
     fn round_trips_a_payload() {
         let dir = tmpdir("roundtrip");
         write(&dir, DNS_CACHE, "key-a", b"hello world");
-        assert_eq!(read(&dir, DNS_CACHE, "key-a").as_deref(), Some(&b"hello world"[..]));
+        assert_eq!(
+            read(&dir, DNS_CACHE, "key-a").as_deref(),
+            Some(&b"hello world"[..])
+        );
     }
 
     #[test]
@@ -145,7 +148,10 @@ mod tests {
         let full = fs::read(&p).unwrap();
         for cut in [0usize, 2, 4, 8, 11] {
             fs::write(&p, &full[..cut.min(full.len())]).unwrap();
-            assert!(read(&dir, DNS_CACHE, "key").is_none(), "truncated to {cut} must be refused");
+            assert!(
+                read(&dir, DNS_CACHE, "key").is_none(),
+                "truncated to {cut} must be refused"
+            );
         }
 
         // Wrong magic entirely.

@@ -65,7 +65,8 @@ impl Waker {
     pub fn drain(&self) {
         let mut buf = [0u8; 64];
         loop {
-            let n = unsafe { libc::read(self.read, buf.as_mut_ptr() as *mut libc::c_void, buf.len()) };
+            let n =
+                unsafe { libc::read(self.read, buf.as_mut_ptr() as *mut libc::c_void, buf.len()) };
             if n <= 0 {
                 break;
             }
@@ -105,7 +106,10 @@ mod tests {
     #[test]
     fn starts_quiet() {
         let w = Waker::new().unwrap();
-        assert!(!readable(w.read_fd(), 0), "a fresh waker must not report readable");
+        assert!(
+            !readable(w.read_fd(), 0),
+            "a fresh waker must not report readable"
+        );
     }
 
     #[test]
