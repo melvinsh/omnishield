@@ -31,6 +31,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
@@ -73,7 +74,11 @@ import kotlinx.coroutines.withContext
 fun SecurityScreen(modifier: Modifier = Modifier, viewModel: SecurityViewModel = viewModel()) {
     val context = LocalContext.current
     val state by viewModel.uiState.collectAsStateWithLifecycle()
-    val browsers = remember { browserApps(context) }
+    // Enumerating browsers is a sweep over every installed package (see browserApps), so it runs
+    // off the main thread and the list fills in a frame later rather than blocking composition.
+    val browsers by produceState(initialValue = emptyList(), context) {
+        value = withContext(Dispatchers.IO) { browserApps(context) }
+    }
 
     OnResume { viewModel.refreshCaTrust() }
 
@@ -455,11 +460,25 @@ internal fun isCaInstalled(pem: String): Boolean {
 /** Browsers are the only apps where interception realistically works, so only those listed. */
 private fun browserApps(context: Context): List<InstalledApp> {
     val pm = context.packageManager
-    val browserIntent = Intent(Intent.ACTION_VIEW, Uri.parse("https://example.com"))
+    // A scheme-only "https:" probe with CATEGORY_BROWSABLE matches only real browsers — apps that
+    // handle a bare web scheme rather than one specific verified host — and MATCH_ALL returns every
+    // one of them. Querying a full URL with flags 0 (what this did before) collapses to the single
+    // default browser on Android 12+, so only the default ever appeared: a user with Firefox set
+    // as default never saw Chrome, and vice versa.
+    val browserProbe = Intent(Intent.ACTION_VIEW, Uri.parse("https://example.com"))
+        .addCategory(Intent.CATEGORY_BROWSABLE)
     return runCatching {
-        pm.queryIntentActivities(browserIntent, 0)
-            .mapNotNull { resolved ->
-                val info = resolved.activityInfo?.applicationInfo ?: return@mapNotNull null
+        // A plain queryIntentActivities collapses a web intent to the single default browser on
+        // Android 12+, even with MATCH_ALL — so a user whose default is Firefox never saw Chrome,
+        // and vice versa. Resolving the probe *scoped to each installed package* (setPackage)
+        // sidesteps that collapse: each app is asked on its own whether it is a browser, so every
+        // installed browser is found. Needs QUERY_ALL_PACKAGES, which the app already holds.
+        pm.getInstalledApplications(0)
+            .filter {
+                pm.queryIntentActivities(Intent(browserProbe).setPackage(it.packageName), 0)
+                    .isNotEmpty()
+            }
+            .map { info ->
                 InstalledApp(
                     uid = info.uid,
                     packageName = info.packageName,

@@ -151,7 +151,7 @@
     <string name="https_apps_sub">Anything not listed here keeps working normally with DNS-level filtering only.</string>
     <string name="https_apps_disabled">Turn on Intercept HTTPS to choose apps.</string>
     <string name="https_no_browsers">No browsers found on this device.</string>
-    <string name="https_pinned">Bypassed — this app rejected our certificate</string>
+    <string name="https_pinned">Bypassed — it didn\'t trust the certificate. Still filtered by DNS. Some browsers (Firefox) keep their own certificate store and can\'t be intercepted.</string>
     <string name="https_unpin">Try again</string>
     <string name="https_unpin_done">%1$s will be intercepted again on its next connection</string>
 
