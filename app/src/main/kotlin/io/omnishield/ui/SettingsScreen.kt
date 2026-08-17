@@ -1,3 +1,5 @@
+@file:OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
+
 package io.omnishield.ui
 
 import android.content.Context
@@ -21,7 +23,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.CircularWavyProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -304,7 +306,7 @@ private fun FilterListSection(
                 modifier = Modifier.weight(1f),
             )
             if (refreshing) {
-                CircularProgressIndicator(Modifier.size(20.dp))
+                CircularWavyProgressIndicator(Modifier.size(24.dp))
             } else {
                 TextButton(onClick = onRefresh) {
                     Text(stringResource(R.string.settings_refresh_lists))
@@ -347,7 +349,7 @@ private fun FilterListSection(
                 // A per-row spinner while this specific list is still in flight, so the ones
                 // that have already landed read as done even while a slow host is still trying.
                 if (listState == ListProgress.Downloading) {
-                    CircularProgressIndicator(Modifier.size(16.dp))
+                    CircularWavyProgressIndicator(Modifier.size(18.dp))
                 }
             }
         }

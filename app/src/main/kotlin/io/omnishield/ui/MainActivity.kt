@@ -14,9 +14,13 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.snap
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.AppBlocking
@@ -25,11 +29,12 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.ShortNavigationBar
-import androidx.compose.material3.ShortNavigationBarItem
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.adaptive.currentWindowAdaptiveInfo
+import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteScaffold
+import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteScaffoldDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -41,6 +46,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import io.omnishield.ui.components.animationsEnabled
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -181,34 +187,63 @@ private fun MainScaffold(autoConnect: Boolean, onAutoConnectConsumed: () -> Unit
             }
         }
 
-        Scaffold(
-            // The screens supply their own title bars via ScreenScaffold, and a TopAppBar
-            // applies the status-bar inset itself. Zeroing this one leaves `insets` holding
-            // only the navigation bar, so nothing is padded twice.
-            contentWindowInsets = WindowInsets(0, 0, 0, 0),
-            bottomBar = {
-                // ShortNavigationBar is the Expressive navigation bar: a shorter container
-                // with the label tucked beside the icon rather than beneath it.
-                ShortNavigationBar {
-                    Tab.entries.forEach { entry ->
-                        val label = stringResource(entry.labelRes)
-                        ShortNavigationBarItem(
-                            selected = tab == entry,
-                            onClick = { tab = entry },
-                            icon = { Icon(entry.icon, contentDescription = label) },
-                            label = { Text(label) },
-                        )
-                    }
+        // NavigationSuiteScaffold adapts the navigation to the window: the Expressive short
+        // navigation bar along the bottom on a phone, a navigation rail down the side once there
+        // is width for it (unfolded foldables, tablets, desktop windows). It picks the layout
+        // from currentWindowAdaptiveInfo() on its own.
+        //
+        // Insets: the nav component owns its own — the bottom bar consumes the gesture inset, the
+        // rail the side inset — and the content is laid out in the space that remains. It does
+        // *not* pad the content for the status bar, so each screen's ScreenScaffold TopAppBar
+        // stays the single consumer of the top inset and nothing is padded twice. That is the
+        // same contract the old zeroed-insets Scaffold upheld, now handled by the suite.
+        // Resolved here, not inside the item builder: the navigation-suite items lambda is not a
+        // composable scope, so stringResource must be read in the composable body.
+        val tabLabels = Tab.entries.map { stringResource(it.labelRes) }
+        val animate = animationsEnabled()
+        // Motion specs read from the theme here too, for the same reason — AnimatedContent's
+        // transitionSpec runs outside composition.
+        val enterSpec = MaterialTheme.motionScheme.defaultEffectsSpec<Float>()
+        val exitSpec = MaterialTheme.motionScheme.fastEffectsSpec<Float>()
+
+        NavigationSuiteScaffold(
+            // The Expressive mapping, not the classic one: the short navigation bar on a phone
+            // (the label tucked beside the icon, the container the app already committed to) and
+            // the wide navigation rail once the window earns it, rather than the plain
+            // NavigationBar/NavigationRail that calculateFromAdaptiveInfo would pick.
+            layoutType =
+                NavigationSuiteScaffoldDefaults.navigationSuiteType(currentWindowAdaptiveInfo()),
+            navigationSuiteItems = {
+                Tab.entries.forEachIndexed { index, entry ->
+                    val label = tabLabels[index]
+                    item(
+                        selected = tab == entry,
+                        onClick = { tab = entry },
+                        icon = { Icon(entry.icon, contentDescription = label) },
+                        label = { Text(label) },
+                    )
                 }
-            }
-        ) { insets ->
-            val inner = Modifier.padding(insets)
-            when (tab) {
-                Tab.Dashboard -> DashboardScreen(inner, onConnectRequested)
-                Tab.Log -> LogScreen(inner)
-                Tab.Firewall -> FirewallScreen(inner)
-                Tab.Web -> SecurityScreen(inner)
-                Tab.Settings -> SettingsScreen(inner)
+            },
+        ) {
+            AnimatedContent(
+                targetState = tab,
+                transitionSpec = {
+                    if (animate) {
+                        (fadeIn(enterSpec) + scaleIn(enterSpec, initialScale = 0.96f)) togetherWith
+                            fadeOut(exitSpec)
+                    } else {
+                        fadeIn(snap()) togetherWith fadeOut(snap())
+                    }
+                },
+                label = "tab",
+            ) { current ->
+                when (current) {
+                    Tab.Dashboard -> DashboardScreen(Modifier, onConnectRequested)
+                    Tab.Log -> LogScreen(Modifier)
+                    Tab.Firewall -> FirewallScreen(Modifier)
+                    Tab.Web -> SecurityScreen(Modifier)
+                    Tab.Settings -> SettingsScreen(Modifier)
+                }
             }
         }
     }

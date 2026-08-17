@@ -9,10 +9,8 @@ import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.MaterialExpressiveTheme
 import androidx.compose.material3.MotionScheme
-import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
-import androidx.compose.material3.expressiveLightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.platform.LocalContext
@@ -29,16 +27,15 @@ import androidx.core.view.WindowCompat
  *    system's tonal palettes rather than imposing a brand colour. Hard-coding a palette on a
  *    device that supports dynamic colour is the single most common way apps get M3 wrong.
  *
- * 2. **The static fallbacks are Google-authored, not hand-picked.** Below API 31 the light
- *    scheme is `expressiveLightColorScheme()` and the dark scheme is the M3 baseline
- *    `darkColorScheme()`. Both come with correct tonal relationships between every role
- *    (container/on-container contrast, surface elevation tints) already guaranteed.
- *    Eyeballing 48 role colours by hand reliably produces contrast failures.
+ * 2. **The static fallbacks are Google-authored.** Below API 31 the palettes come from
+ *    [omniLightColorScheme]/[omniDarkColorScheme] — see `Color.kt` for why they are the
+ *    Expressive/baseline schemes rather than hand-picked roles, and for the light/dark asymmetry.
  *
- *    Note the asymmetry: Material does not currently ship an `expressiveDarkColorScheme()`,
- *    so the dark fallback is the standard baseline. Devices on API 31+ never see either.
+ * 3. **The token layer.** Typography stays the Expressive default (see `Type.kt`); shapes come
+ *    from [OmniShapes] (see `Shape.kt`), which pulls corners rounder than the baseline for the
+ *    Expressive feel.
  *
- * 3. **Expressive motion.** [MotionScheme.expressive] swaps the standard spring set for the
+ * 4. **Expressive motion.** [MotionScheme.expressive] swaps the standard spring set for the
  *    faster, springier one that defines the Expressive look; it is what makes state changes
  *    feel elastic rather than linear.
  */
@@ -55,8 +52,8 @@ fun OmniShieldTheme(
             if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
         }
 
-        darkTheme -> darkColorScheme()
-        else -> expressiveLightColorScheme()
+        darkTheme -> omniDarkColorScheme()
+        else -> omniLightColorScheme()
     }
 
     // Edge-to-edge is enabled by the Activity; the bar *icons* still have to be inverted to
@@ -75,6 +72,7 @@ fun OmniShieldTheme(
     MaterialExpressiveTheme(
         colorScheme = colorScheme,
         motionScheme = MotionScheme.expressive(),
+        shapes = OmniShapes,
         content = content,
     )
 }
