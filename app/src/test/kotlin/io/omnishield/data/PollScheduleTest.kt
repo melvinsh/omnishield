@@ -12,12 +12,34 @@ import org.junit.Test
 class PollScheduleTest {
 
     @Test
-    fun `events reset the interval to the floor`() {
+    fun `with a screen showing, any event resets the interval to the floor`() {
         assertEquals(PollSchedule.MIN_MS, PollSchedule.next(PollSchedule.MAX_UI_MS, 1, true))
+    }
+
+    @Test
+    fun `with the screen off, a trickle does not reset the interval`() {
+        // The regression this schedule replaces: every allowed DNS query is an event, so
+        // "any event resets to the floor" kept the loop at 2 Hz all night on any device
+        // with background traffic. A small batch must leave the backoff alone.
         assertEquals(
-            PollSchedule.MIN_MS,
+            PollSchedule.MAX_BACKGROUND_MS,
             PollSchedule.next(PollSchedule.MAX_BACKGROUND_MS, 42, false),
         )
+    }
+
+    @Test
+    fun `with the screen off, a trickle still climbs to the ceiling`() {
+        var i = PollSchedule.MIN_MS
+        repeat(10) { i = PollSchedule.next(i, 3, false) }
+        assertEquals(PollSchedule.MAX_BACKGROUND_MS, i)
+    }
+
+    @Test
+    fun `with the screen off, moderate volume holds and heavy volume shrinks`() {
+        val held = PollSchedule.next(8_000L, PollSchedule.SHRINK_THRESHOLD - 1, false)
+        assertEquals(8_000L, held)
+        val shrunk = PollSchedule.next(8_000L, PollSchedule.SHRINK_THRESHOLD, false)
+        assertEquals(4_000L, shrunk)
     }
 
     @Test

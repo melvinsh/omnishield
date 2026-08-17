@@ -63,7 +63,7 @@
     <string name="setting_filtering">Filtering</string>
     <string name="setting_filtering_sub">Sinkhole known ad and tracker domains</string>
     <string name="setting_quic">Block QUIC</string>
-    <string name="setting_quic_sub">Forces HTTP/3 apps back to TCP, where the tunnel can see and filter them</string>
+    <string name="setting_quic_sub">Forces intercepted apps back to TCP, where HTTPS interception can read them. Does nothing until an app is opted in to interception</string>
     <string name="doh_degraded">Encrypted DNS unavailable — queries are going out in the clear</string>
     <string name="pause_title">Pause filtering</string>
     <string name="pause_5m">5 min</string>

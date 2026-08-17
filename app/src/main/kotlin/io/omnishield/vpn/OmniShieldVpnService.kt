@@ -4,13 +4,17 @@ import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
+import android.content.BroadcastReceiver
+import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.ServiceInfo
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.net.VpnService
 import android.os.Build
 import android.os.ParcelFileDescriptor
+import android.os.PowerManager
 import android.os.SystemClock
 import android.util.Log
 import androidx.annotation.Keep
@@ -106,6 +110,18 @@ class OmniShieldVpnService : VpnService() {
         filters = FilterRepository(this)
         logs = LogRepository(this)
         rules = RulesRepository(this)
+        // ACTION_SCREEN_ON is a protected system broadcast; the flag is required by
+        // targetSdk 34 regardless of sender.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(
+                screenOnReceiver,
+                IntentFilter(Intent.ACTION_SCREEN_ON),
+                RECEIVER_NOT_EXPORTED,
+            )
+        } else {
+            @Suppress("UnspecifiedRegisterReceiverFlag")
+            registerReceiver(screenOnReceiver, IntentFilter(Intent.ACTION_SCREEN_ON))
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -159,6 +175,7 @@ class OmniShieldVpnService : VpnService() {
     }
 
     override fun onDestroy() {
+        runCatching { unregisterReceiver(screenOnReceiver) }
         stopTunnel(userInitiated = false)
         super.onDestroy()
     }
@@ -493,10 +510,11 @@ class OmniShieldVpnService : VpnService() {
         var lastBlocked = -1L
         var lastStats = Stats()
         var interval = PollSchedule.MIN_MS
-        var uiBound = true
+        var uiBound = TunnelRepository.uiActive.value
         val uiWatch = scope?.launch {
             TunnelRepository.uiActive.collect { uiBound = it }
         }
+        val power = getSystemService(PowerManager::class.java)
 
         while (scope?.isActive == true) {
             val handle = nativeHandle
@@ -508,22 +526,32 @@ class OmniShieldVpnService : VpnService() {
                     .onFailure { Log.w(TAG, "could not persist log batch: ${it.message}") }
             }
 
-            val statsJson = NativeBridge.nativeStats(handle)
-            val stats = CoreJson.parseStats(statsJson)
-            TunnelRepository.setStats(stats)
-            TunnelRepository.setContentRules(stats.contentRules.toInt())
-            TunnelRepository.setDohDegraded(stats.dohDegraded)
-            runCatching { logs.rollUp(lastStats, stats) }
-                .onFailure { Log.w(TAG, "could not roll up stats: ${it.message}") }
-            lastStats = stats
+            // "Watching" needs both a bound activity and a lit screen. `uiActive` alone is a
+            // process-wide flag set by onStart/onStop; if an onStop is ever missed it would
+            // hold the 2 s ceiling — and the notification churn below — all night.
+            val watching = uiBound && power?.isInteractive != false
 
-            val blocked = stats.dnsBlocked + stats.connsBlocked
-            if (blocked != lastBlocked) {
-                lastBlocked = blocked
-                updateNotification(blocked)
+            // The stats round trip (JNI + JSON + four StateFlow writes + a possible Room
+            // transaction) is skipped when nothing happened and nobody is looking. Counters
+            // are cumulative in the core, so nothing is lost by reading them later.
+            if (events.isNotEmpty() || watching) {
+                val statsJson = NativeBridge.nativeStats(handle)
+                val stats = CoreJson.parseStats(statsJson)
+                TunnelRepository.setStats(stats)
+                TunnelRepository.setContentRules(stats.contentRules.toInt())
+                TunnelRepository.setDohDegraded(stats.dohDegraded)
+                runCatching { logs.rollUp(lastStats, stats) }
+                    .onFailure { Log.w(TAG, "could not roll up stats: ${it.message}") }
+                lastStats = stats
+
+                val blocked = stats.dnsBlocked + stats.connsBlocked
+                if (blocked != lastBlocked) {
+                    lastBlocked = blocked
+                    updateNotification(blocked)
+                }
             }
 
-            interval = PollSchedule.next(interval, events.size, uiBound)
+            interval = PollSchedule.next(interval, events.size, watching)
             delay(interval)
         }
         uiWatch?.cancel()
@@ -564,12 +592,28 @@ class OmniShieldVpnService : VpnService() {
      */
     private fun updateNotification(blockedCount: Long) {
         lastBlockedForNotification = blockedCount
+        // A dark screen means no shade and no lock screen: nobody can see the count, and a
+        // builder rebuild plus a binder `notify` every 2 s all night is real battery for a
+        // number nobody is reading. The screen-on receiver republishes on wake.
+        if (getSystemService(PowerManager::class.java)?.isInteractive == false) return
         val now = SystemClock.elapsedRealtime()
         if (now - lastNotificationAt < NOTIFICATION_MIN_INTERVAL_MS) return
         lastNotificationAt = now
         runCatching {
             getSystemService(NotificationManager::class.java)
                 ?.notify(NOTIFICATION_ID, buildNotification(blockedCount))
+        }
+    }
+
+    /**
+     * Republishes the count the moment the screen lights up, so the shade never shows a
+     * number from the last time the screen was on. Registered while the tunnel runs.
+     */
+    private val screenOnReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            if (TunnelRepository.status.value is TunnelStatus.Running) {
+                updateNotification(lastBlockedForNotification)
+            }
         }
     }
 

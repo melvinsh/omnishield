@@ -28,23 +28,35 @@ object PollSchedule {
     /** Batch size treated as ring pressure: three quarters full in a single drain. */
     const val RING_PRESSURE = RING_CAPACITY * 3 / 4
 
+    /** Above this per-drain batch the interval halves — the ring is filling briskly. */
+    const val SHRINK_THRESHOLD = RING_CAPACITY / 4
+
+    /** Below this per-drain batch the interval keeps doubling — the ring is in no danger. */
+    const val GROW_THRESHOLD = RING_CAPACITY / 16
+
     /**
      * The next wait, given the last one and what that drain returned.
      *
-     * Three rules, in precedence order:
+     * With a screen showing tunnel state, any event snaps back to the floor so the log stays
+     * live to the eye. With nothing on screen, the cadence follows *volume*, not activity: the
+     * only hard requirement is that the ring cannot overflow between drains, so the interval
+     * doubles while batches are small, holds while they are moderate, and halves once a batch
+     * says the ring is filling. The old rule — any event at all resets to the floor — meant
+     * every allowed DNS query (each one is an event) restarted the ~30 s climb back to the
+     * ceiling, and ordinary background traffic kept the loop at 2 Hz all night with the
+     * screen off.
      *
-     *  1. A nearly-full drain means the ring is filling faster than it is being emptied, and an
-     *     overflow silently discards log entries. Go below the floor — losing rows would be a
-     *     functional regression, not a cheaper one.
-     *  2. Anything at all to report resets to the floor, so the log stays live while browsing.
-     *  3. Nothing to report doubles the wait, up to a ceiling that depends on whether anyone is
-     *     actually looking.
+     * The precedence, screen off: pressure < shrink < hold < grow. At the 30 s ceiling the
+     * hold band tops out at [RING_PRESSURE] per drain (~50 events/s) with the snap-to-250 ms
+     * rule above it, the same overflow margin the old schedule had.
      */
     fun next(current: Long, drained: Int, uiVisible: Boolean): Long {
         val ceiling = if (uiVisible) MAX_UI_MS else MAX_BACKGROUND_MS
         return when {
             drained >= RING_PRESSURE -> MIN_MS / 2
-            drained > 0 -> MIN_MS
+            uiVisible && drained > 0 -> MIN_MS
+            drained >= SHRINK_THRESHOLD -> (current / 2).coerceIn(MIN_MS, ceiling)
+            drained > GROW_THRESHOLD -> current.coerceIn(MIN_MS, ceiling)
             else -> (current * 2).coerceIn(MIN_MS, ceiling)
         }
     }
