@@ -1,0 +1,33 @@
+name: Feature request
+description: Suggest something the app should do
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Some things are out of scope by design rather than by omission. Read
+        [docs/architecture.md](../blob/master/docs/architecture.md#limitations) first: filtering
+        inside apps that are not Chrome-family browsers, blocking ads served from the content's
+        own domain, and anything needing root are all constrained by Android or by DNS, not by
+        effort.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve
+      description: Describe the situation you are in, not the feature. It often has a better answer.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you have in mind
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: What you tried instead
+      description: Existing settings, overrides, firewall rules, another app.

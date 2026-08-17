@@ -1,0 +1,65 @@
+name: Site or app is broken
+description: Something stopped working while OmniShield was filtering
+labels: [filtering]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **You can fix this yourself right now, and it will hold across list updates.**
+
+        Open the **Log** tab, find the domain in the list, tap it, and choose **Always allow**.
+        Your choice beats any downloaded rule for that domain. Everything you have overridden is
+        listed in Settings, where you can undo it.
+
+        Please still report it. A blocklist that breaks a mainstream site is something to chase,
+        even though the rule itself belongs to whoever publishes the list.
+
+  - type: input
+    id: site
+    attributes:
+      label: What is broken
+      placeholder: bank.example.com, or the Foo app's login screen
+    validations:
+      required: true
+
+  - type: textarea
+    id: symptom
+    attributes:
+      label: What it does instead
+      description: A blank page, a spinner that never stops, an error message, a failed login.
+    validations:
+      required: true
+
+  - type: textarea
+    id: domains
+    attributes:
+      label: Which domains were blocked
+      description: |
+        From the **Log** tab with the "Blocked only" filter on, around the time it broke. This is
+        the single most useful thing in the report, because it names the rule.
+      render: text
+
+  - type: dropdown
+    id: fixed
+    attributes:
+      label: Did allowing the domain fix it?
+      options: ['Yes', 'No', 'Have not tried yet', 'It is not a domain I can allow']
+    validations:
+      required: true
+
+  - type: dropdown
+    id: layer
+    attributes:
+      label: Does it still break with HTTPS interception off?
+      description: Settings for the Web tab. It is off by default, so most people can say "it was already off".
+      options: ['It was already off', 'Yes, still breaks with it off', 'No, turning it off fixed it']
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: OmniShield version
+      placeholder: 0.2.0
+    validations:
+      required: true

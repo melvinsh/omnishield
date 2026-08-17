@@ -1,0 +1,33 @@
+version: 2
+
+updates:
+  # Grouped on purpose. Compose and AndroidX move as a set, and ungrouped they arrive as
+  # a dozen pull requests that each need the full three-suite run to be trusted.
+  - package-ecosystem: gradle
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      compose:
+        patterns: ['androidx.compose*', 'androidx.activity*']
+      androidx:
+        patterns: ['androidx.*']
+      build:
+        patterns: ['com.android.*', 'org.jetbrains.kotlin*', 'com.google.devtools.ksp*']
+      test:
+        patterns: ['junit*', 'org.robolectric*', 'app.cash.turbine*', 'androidx.test*']
+
+  - package-ecosystem: cargo
+    directory: /core
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      rust:
+        patterns: ['*']
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly

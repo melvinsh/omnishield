@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/melvinsh/omnishield/security/advisories/new
+    about: Report privately. Do not open a public issue for anything exploitable.
+  - name: How something works, and why
+    url: https://github.com/melvinsh/omnishield/tree/master/docs
+    about: The packet path, the filtering layers, routing, and what was measured on device.

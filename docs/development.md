@@ -10,7 +10,7 @@ brew install openjdk@17      # the formula, not the temurin cask, which needs su
 brew install --cask android-commandlinetools
 brew install rustup gradle
 
-rustup target add aarch64-linux-android
+rustup target add aarch64-linux-android x86_64-linux-android
 cargo install cargo-ndk
 
 sdkmanager --licenses
@@ -48,7 +48,7 @@ in the working directory and `--manifest-path` alone is not enough. Note the cap
 API level; lowercase `-p` means `--package` in cargo-ndk 4.x and fails with `unknown package: 29`:
 
 ```bash
-cd core && cargo ndk -t arm64-v8a -P 29 -o ../app/src/main/jniLibs build --release
+cd core && cargo ndk -t arm64-v8a -t x86_64 -P 29 -o ../app/src/main/jniLibs build --release
 ```
 
 ## Tests
@@ -149,8 +149,51 @@ CPU time is the battery proxy, since battery itself is not measurable on QEMU. C
 `dumpsys meminfo io.omnishield` at startup and again 60 s later. The startup peak and the steady
 state are different numbers, and the peak is the one that caching the filters addresses.
 
-[Efficiency](efficiency.md) has the measured before and after figures, and the three things that
-look like obvious waste but are not.
+[Efficiency](efficiency.md) has the measured before and after figures, and the things that look
+like obvious waste but are not.
+
+## Continuous integration
+
+`.github/workflows/ci.yml` runs on every push to `master` and every pull request, in three jobs
+on `ubuntu-latest`:
+
+| Job | What it runs |
+|---|---|
+| `rust` | `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test` |
+| `android` | Gradle wrapper validation, then `testDebugUnitTest lint assembleDebug`; uploads the lint SARIF to code scanning and the debug APKs as artifacts |
+| `instrumented` | `connectedDebugAndroidTest` on an API 34 x86_64 emulator |
+
+The `x86_64` ABI exists largely so that last job can run at all: GitHub's Linux runners are
+x86_64 and cannot host an arm64 emulator. Running it on macOS arm64 runners instead was the
+alternative, and shipping a second ABI is more useful than a faster CI job.
+
+Two things CI cannot check, so neither has a gate and both need a device:
+
+- **The LAN routing behaviour:** QEMU's NAT has no real LAN peer to connect inward from, which
+  is exactly the direction the bug in [architecture.md](architecture.md#the-tunnel-does-not-claim-the-local-network)
+  broke.
+- **Idle CPU:** measure it by hand, per [Measuring cost](#measuring-cost), when changing anything
+  on the poll or drain path.
+
+The compiler is pinned in `core/rust-toolchain.toml`, so `rustup show` in that directory installs
+the right version and both Android targets in one step. That is what CI does.
+
+## Releases
+
+Pushing a `v*` tag runs `.github/workflows/release.yml`: it re-runs the tests, builds
+`assembleRelease` with a keystore decoded from repository secrets, renames the split outputs to
+`omnishield-<version>-<abi>.apk`, writes `SHA256SUMS`, and publishes a GitHub Release using the
+matching `CHANGELOG.md` section as the body. `versionName` comes from the tag and `versionCode`
+from the tag count, so it increases monotonically without any state to keep.
+
+Four secrets are needed: `KEYSTORE_BASE64`, `KEYSTORE_PASSWORD`, `KEY_ALIAS`, `KEY_PASSWORD`.
+The workflow fails rather than falling back if the first is missing, because a debug-signed
+release can never be upgraded.
+
+Locally, with none of those in the environment, `./gradlew assembleRelease` still signs with the
+debug key. That fallback is deliberate: an unsigned release APK cannot be installed, which would
+leave R8's output untestable on a device, and a broken keep rule produces no build error. Do not
+publish anything built that way.
 
 ## Version constraints
 
@@ -172,5 +215,5 @@ Changing any of these tends to break the build in a non-obvious way.
 
 ## Repository
 
-`master` on `github.com/melvinsh/omnishield`, private. Build outputs, `core/target/`,
+`master` on `github.com/melvinsh/omnishield`. Build outputs, `core/target/`,
 `app/src/main/jniLibs/` and the 13 MB of downloaded blocklists are gitignored.

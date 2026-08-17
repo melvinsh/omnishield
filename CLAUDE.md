@@ -18,6 +18,13 @@ record lives in `docs/`:
 
 Some of what follows is repeated in those files. When they disagree, the code wins, and fix both.
 
+The repo is **public** and MIT licensed. `CONTRIBUTING.md`, `SECURITY.md`, `NOTICE.md` and
+`CHANGELOG.md` are written for strangers and this file is not, but all of them are readable by
+anyone. Two consequences for changes made here: a new dependency in `core/Cargo.toml` must not
+be GPL, since that would conflict with the app's licence (`NOTICE.md` explains the check), and
+the `## [x.y.z]` headings in `CHANGELOG.md` are parsed by the release workflow, so reshaping
+them silently empties the release notes.
+
 ## Environment
 
 Nothing is on the default PATH. Every command below assumes:
@@ -32,7 +39,7 @@ rustup's shims live in `/opt/homebrew/opt/rustup/bin`, **not** `~/.cargo/bin` (w
 cargo-installed binaries like `cargo-ndk`). Gradle resolves `cargo` itself via `rustToolDirs` in
 `app/build.gradle.kts`, so builds work without these exports; the Rust commands do not.
 
-Git: `master` on `github.com/melvinsh/omnishield` (private). Build outputs, `core/target/`,
+Git: `master` on `github.com/melvinsh/omnishield`. Build outputs, `core/target/`,
 `app/src/main/jniLibs/` and the ~13 MB of downloaded blocklists are gitignored; the lists are
 pulled off a device on demand (see the offline probes below), while `core/probe-*.txt` are
 checked-in fixtures and should stay that way.
@@ -74,7 +81,7 @@ Building the Rust core alone **must run from `core/`**, because cargo-ndk invoke
 `unknown package: 29`:
 
 ```bash
-cd core && cargo ndk -t arm64-v8a -P 29 -o ../app/src/main/jniLibs build --release
+cd core && cargo ndk -t arm64-v8a -t x86_64 -P 29 -o ../app/src/main/jniLibs build --release
 ```
 
 Two offline probes exist for reasoning about filter behaviour without a device. Use these

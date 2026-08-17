@@ -10,13 +10,24 @@ plugins {
 }
 
 /**
- * Only arm64 is built. The dev machine is Apple Silicon, so the emulator system images and
- * any real test device share the `arm64-v8a` ABI — a second Rust target would be dead weight.
- * Add `x86_64` here (and via `rustup target add`) if an Intel host or x86 emulator appears.
+ * The ABIs the Rust core is cross-compiled for, and the single source of truth for the APK
+ * splits below. `arm64-v8a` covers every current phone; `x86_64` covers emulators, which is
+ * what lets the instrumented suite run on CI's Linux runners, and x86 Chromebooks.
+ *
+ * Adding one here also needs `rustup target add <triple>` — cargo-ndk maps the Android ABI
+ * name to the triple itself.
  */
-val supportedAbis = listOf("arm64-v8a")
+val supportedAbis = listOf("arm64-v8a", "x86_64")
 
 val ndkVersionUsed = "27.3.13750724"
+
+/**
+ * Release identity, overridable from the environment so the release workflow can derive both
+ * from the git tag. The defaults are what a local build gets, so nothing about the documented
+ * developer flow changes.
+ */
+val appVersionName: String = System.getenv("OMNISHIELD_VERSION_NAME") ?: "0.2.0"
+val appVersionCode: Int = System.getenv("OMNISHIELD_VERSION_CODE")?.toIntOrNull() ?: 2
 
 android {
     namespace = "io.omnishield"
@@ -33,10 +44,41 @@ android {
         // below Android 10, and /proc/net scraping was blocked in the same release.
         minSdk = 29
         targetSdk = 34
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = appVersionCode
+        versionName = appVersionName
 
         ndk { abiFilters += supportedAbis }
+    }
+
+    /**
+     * One APK per ABI plus a universal one. The Rust core is 5.5 MB per ABI, so a single
+     * combined APK would make every user download a `.so` their device cannot execute. The
+     * universal build stays because sideloading means there is no store to pick for you, and
+     * "which one do I want" is a question a download page should be able to dodge.
+     */
+    splits {
+        abi {
+            isEnable = true
+            reset()
+            include(*supportedAbis.toTypedArray())
+            isUniversalApk = true
+        }
+    }
+
+    signingConfigs {
+        /**
+         * Populated from the environment by the release workflow. Absent locally, and the
+         * release build type falls back to the debug key when it is — see the comment there.
+         */
+        create("release") {
+            val keystore = System.getenv("OMNISHIELD_KEYSTORE_FILE")?.takeIf { it.isNotBlank() }
+            if (keystore != null) {
+                storeFile = file(keystore)
+                storePassword = System.getenv("OMNISHIELD_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("OMNISHIELD_KEY_ALIAS")
+                keyPassword = System.getenv("OMNISHIELD_KEY_PASSWORD")
+            }
+        }
     }
 
     buildTypes {
@@ -51,12 +93,34 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
             )
-            // Signed with the debug key on purpose. This app is sideload-only (Play policy
-            // forbids blocking ads in other apps), and an unsigned release APK cannot be
-            // installed — which would leave R8's output untestable on a real device, i.e.
-            // exactly the situation that lets a broken keep rule ship unnoticed.
-            signingConfig = signingConfigs.getByName("debug")
+            // Published builds are signed with the release key from the environment. Without
+            // it, fall back to the debug key rather than producing an unsigned APK: an
+            // unsigned release cannot be installed, which would leave R8's output untestable
+            // on a device — exactly the situation that lets a broken keep rule ship unnoticed.
+            //
+            // The fallback is a developer convenience only. A debug-signed APK must never be
+            // published: the debug keystore is generated per machine, so two of them are
+            // different apps to Android and neither can upgrade the other.
+            signingConfig = signingConfigs.getByName("release").takeIf { it.storeFile != null }
+                ?: signingConfigs.getByName("debug")
         }
+    }
+
+    lint {
+        // Lint is not decoration here. It is what caught `BigInteger.TWO` being API 33 against
+        // a minSdk of 29, which every unit test missed because they run on a desktop JVM where
+        // the field exists. Without this block it only runs as lintVital during a release
+        // build, so a debug-only workflow never sees it.
+        abortOnError = true
+        checkDependencies = true
+        sarifReport = true
+        warningsAsErrors = false
+
+        // False positive: x86_64 *is* built, but it reaches the ABI list through
+        // `supportedAbis` and lint reads this file statically, so it never sees the literal.
+        // Keeping one source of truth for the ABI set is worth more than the check, which
+        // would only ever fire on the two lines that already derive from it.
+        disable += "ChromeOsAbiSupport"
     }
 
     compileOptions {
@@ -112,13 +176,18 @@ val androidSdkDir: String = run {
  * `~/.cargo/bin` on PATH, so both are resolved explicitly. `cargo` itself comes from the
  * rustup shim directory, while the `cargo-ndk` subcommand binary lives in `~/.cargo/bin` —
  * both directories must be on the child PATH even though only `cargo` is invoked directly.
+ *
+ * The Homebrew entries are where a macOS rustup install puts its shims. PATH is appended last
+ * so a Linux or Windows contributor with a plain rustup install is found too, rather than
+ * hitting the "cargo not found" failure below with a working toolchain installed.
  */
-val rustToolDirs: List<File> = listOf(
-    File(System.getProperty("user.home"), ".cargo/bin"),
-    File("/opt/homebrew/opt/rustup/bin"),
-    File("/opt/homebrew/bin"),
-    File("/usr/local/bin"),
-).filter { it.isDirectory }
+val rustToolDirs: List<File> = buildList {
+    add(File(System.getProperty("user.home"), ".cargo/bin"))
+    add(File("/opt/homebrew/opt/rustup/bin"))
+    add(File("/opt/homebrew/bin"))
+    add(File("/usr/local/bin"))
+    System.getenv("PATH")?.split(File.pathSeparator)?.forEach { add(File(it)) }
+}.filter { it.isDirectory }.distinct()
 
 val cargoNdkBuild = tasks.register<Exec>("cargoNdkBuild") {
     group = "build"
@@ -131,8 +200,8 @@ val cargoNdkBuild = tasks.register<Exec>("cargoNdkBuild") {
 
     val cargoExe = rustToolDirs.map { File(it, "cargo") }.firstOrNull { it.canExecute() }
         ?: throw GradleException(
-            "cargo not found in ${rustToolDirs.joinToString()} — install rustup, then " +
-                "`cargo install cargo-ndk`"
+            "cargo not found on PATH or in ~/.cargo/bin — install rustup, then " +
+                "`cargo install cargo-ndk` (see docs/development.md)"
         )
 
     environment(
@@ -158,6 +227,10 @@ val cargoNdkBuild = tasks.register<Exec>("cargoNdkBuild") {
 
     inputs.dir(File(coreDir, "src"))
     inputs.file(File(coreDir, "Cargo.toml"))
+    inputs.file(File(coreDir, "Cargo.lock"))
+    inputs.file(File(coreDir, "rust-toolchain.toml"))
+    // A changed ABI list has to rebuild, or jniLibs keeps whatever the last list produced.
+    inputs.property("abis", supportedAbis)
     outputs.dir(jniLibsDir)
 }
 

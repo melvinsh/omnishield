@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Nothing leaves the device, including to another device the user owns.
+
+  `android:allowBackup="false"` already covers this and still works on Android 12+, but the
+  attribute is deprecated there and these rules are the forward-compatible form. Both are
+  declared so the guarantee does not depend on which one a given platform version honours.
+
+  What is being protected: the generated CA private key under `files/ca/` (see SECURITY.md),
+  the request log, and the user's rules. None of it is meaningful off this install, and the CA
+  key in particular is something no backup should ever carry.
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="root" />
+        <exclude domain="file" />
+        <exclude domain="database" />
+        <exclude domain="sharedpref" />
+        <exclude domain="external" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="root" />
+        <exclude domain="file" />
+        <exclude domain="database" />
+        <exclude domain="sharedpref" />
+        <exclude domain="external" />
+    </device-transfer>
+</data-extraction-rules>

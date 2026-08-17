@@ -1,0 +1,79 @@
+name: Bug report
+description: Something in the app behaves wrongly or crashes
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        If a **website or app is broken** while filtering is on, use the "Site or app is
+        broken" template instead. That is usually a filter rule rather than a bug, and the
+        fix is different.
+
+        For anything exploitable, do not open an issue. See
+        [SECURITY.md](../blob/master/SECURITY.md) for private reporting.
+
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what you got instead.
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: OmniShield version
+      description: Settings → About → Version, or the name of the APK you installed.
+      placeholder: 0.2.0
+    validations:
+      required: true
+
+  - type: input
+    id: device
+    attributes:
+      label: Device and Android version
+      placeholder: Pixel 7, Android 15
+    validations:
+      required: true
+
+  - type: dropdown
+    id: apk
+    attributes:
+      label: Which APK
+      options: [arm64-v8a, x86_64, universal, built it myself, not sure]
+    validations:
+      required: true
+
+  - type: dropdown
+    id: tunnel
+    attributes:
+      label: Was the tunnel running?
+      options: ['Yes', 'No', 'It was paused', 'It failed to start']
+    validations:
+      required: true
+
+  - type: dropdown
+    id: screen
+    attributes:
+      label: Where in the app
+      options: [Shield, Log, Firewall, Web, Settings, Onboarding, Notification, Quick Settings tile, Elsewhere]
+
+  - type: textarea
+    id: logcat
+    attributes:
+      label: Logcat, if you have it
+      description: |
+        `adb logcat -d | grep -i omnishield`. Scrub any hostnames you would rather not share;
+        the log records what your apps looked up.
+      render: text
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I checked the existing issues.
+          required: true
+        - label: I am on the latest release, or I have said which version I am on.
+          required: true

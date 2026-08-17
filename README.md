@@ -1,10 +1,14 @@
 # OmniShield
 
+[![CI](https://github.com/melvinsh/omnishield/actions/workflows/ci.yml/badge.svg)](https://github.com/melvinsh/omnishield/actions/workflows/ci.yml)
+[![Licence: MIT](https://img.shields.io/badge/licence-MIT-blue.svg)](LICENSE)
+[![Latest release](https://img.shields.io/github/v/release/melvinsh/omnishield)](https://github.com/melvinsh/omnishield/releases/latest)
+
 An ad and tracker blocker for Android that covers every app on the phone, not just the browser.
 No root. No account. No server: the filtering happens on your device, and nothing about your
 traffic is sent anywhere.
 
-Requires Android 10 or newer. Current version 0.1.0.
+Requires Android 10 or newer.
 
 ## How it works
 
@@ -23,9 +27,15 @@ explains why it reaches so few apps.
 Google Play does not allow apps that block ads in other apps, so OmniShield is installed from an
 APK file rather than a store.
 
-1. Copy `app-release.apk` to the phone and open it.
-2. Android will ask whether to allow installs from whichever app you opened it with. Say yes.
+1. Download an APK from the
+   [latest release](https://github.com/melvinsh/omnishield/releases/latest). Take the
+   `arm64-v8a` one for any phone made in roughly the last decade, `x86_64` for an emulator or an
+   x86 Chromebook, or `universal` if you would rather not check.
+2. Open it on the phone. Android will ask whether to allow installs from whichever app you opened
+   it with. Say yes.
 3. Open OmniShield and tap Connect.
+
+Each release ships a `SHA256SUMS` file if you want to verify the download.
 
 Android shows a VPN consent dialog the first time. That prompt comes from Android, not from
 OmniShield, and it is the only way an app is allowed to see network traffic. There is no remote
@@ -101,8 +111,16 @@ export PATH="$JAVA_HOME/bin:$ANDROID_HOME/platform-tools:/opt/homebrew/opt/rustu
 ./gradlew installDebug
 ```
 
-The Rust core builds automatically as part of that. Full toolchain setup is in
-[docs/development.md](docs/development.md).
+The Rust core builds automatically as part of that. Full toolchain setup, including the two Rust
+targets and the pinned NDK, is in [docs/development.md](docs/development.md).
+
+## Contributing
+
+Bug reports and patches are welcome; see [CONTRIBUTING.md](CONTRIBUTING.md). If a site is broken,
+the fastest fix is an override in the app, and the issue template says so before it asks you for
+anything.
+
+Security problems go through [private reporting](SECURITY.md) rather than the issue tracker.
 
 ## Documentation
 
@@ -113,3 +131,8 @@ The Rust core builds automatically as part of that. Full toolchain setup is in
 | [Verification](docs/verification.md) | What was measured on device, the benchmark result, bugs testing found |
 | [Efficiency](docs/efficiency.md) | Idle CPU and memory: what changed, what did not, and why |
 | [Interface](docs/interface.md) | Material 3 Expressive, and the pass that made every screen explain itself |
+
+## Licence
+
+MIT; see [LICENSE](LICENSE). [NOTICE.md](NOTICE.md) covers the filter lists and the dependency
+tree, including why the blocklists are downloaded rather than bundled.

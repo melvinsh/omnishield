@@ -1,0 +1,158 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Matches app/build.gradle.kts. cargo-ndk needs it to find the toolchain.
+  NDK_VERSION: 27.3.13750724
+
+jobs:
+  # The core's own tests need no Android SDK and no emulator, so they run first and
+  # fastest. 101 tests, all offline.
+  rust:
+    name: Rust core
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        run: rustup show          # installs what core/rust-toolchain.toml pins
+        working-directory: core
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: core
+
+      - name: Format
+        run: cargo fmt --check
+        working-directory: core
+
+      - name: Clippy
+        run: cargo clippy --all-targets -- -D warnings
+        working-directory: core
+
+      - name: Test
+        run: cargo test
+        working-directory: core
+
+  android:
+    name: Android build and unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: gradle/actions/wrapper-validation@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Install Rust and the Android targets
+        run: rustup show
+        working-directory: core
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: core
+
+      - name: Install cargo-ndk
+        run: cargo install cargo-ndk --locked
+
+      - name: Install NDK ${{ env.NDK_VERSION }}
+        run: $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "ndk;${{ env.NDK_VERSION }}"
+
+      # Lint is not decoration: it is what caught BigInteger.TWO being API 33 against a
+      # minSdk of 29, which every unit test missed because they run on a desktop JVM.
+      - name: Unit tests, lint, assemble
+        run: ./gradlew testDebugUnitTest lint assembleDebug
+
+      - name: Upload lint results
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: app/build/reports/lint-results-debug.sarif
+          category: android-lint
+
+      - name: Upload unit test report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-test-report
+          path: app/build/reports/tests/
+
+      - name: Upload debug APKs
+        uses: actions/upload-artifact@v4
+        with:
+          name: debug-apks
+          path: app/build/outputs/apk/debug/*.apk
+          retention-days: 7
+
+  # Runs on the x86_64 emulator, which is the reason the app builds an x86_64 ABI at all.
+  # These 36 tests cover Room and Compose and never bring the tunnel up, so no VPN consent
+  # handling is needed here.
+  #
+  # What this job cannot cover: the LAN routing behaviour in docs/architecture.md. QEMU's
+  # NAT has no real LAN peer to connect inward from, so a regression there is invisible to
+  # CI and has to be checked by hand against a physical network.
+  instrumented:
+    name: Instrumented tests
+    runs-on: ubuntu-latest
+    needs: android
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Install Rust and the Android targets
+        run: rustup show
+        working-directory: core
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: core
+
+      - name: Install cargo-ndk
+        run: cargo install cargo-ndk --locked
+
+      - name: Install NDK ${{ env.NDK_VERSION }}
+        run: $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "ndk;${{ env.NDK_VERSION }}"
+
+      - name: Connected tests
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          emulator-options: -no-window -no-snapshot -no-audio -no-boot-anim -gpu swiftshader_indirect
+          script: ./gradlew connectedDebugAndroidTest
+
+      - name: Upload instrumented test report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: instrumented-test-report
+          path: app/build/reports/androidTests/
