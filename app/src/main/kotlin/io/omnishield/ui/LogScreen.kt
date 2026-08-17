@@ -2,7 +2,9 @@
 
 package io.omnishield.ui
 
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -58,7 +60,9 @@ import io.omnishield.data.LogEntry
 import io.omnishield.ui.components.ConfirmDialog
 import io.omnishield.ui.components.LocalSnackbar
 import io.omnishield.ui.components.ScreenScaffold
+import io.omnishield.ui.components.pressScale
 import io.omnishield.ui.components.rememberCollapsingBar
+import io.omnishield.ui.theme.monoBody
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
@@ -334,10 +338,16 @@ internal fun LogRow(entry: LogEntry, override: Boolean?, onClick: () -> Unit) {
     }
     val rowDescription = stringResource(R.string.cd_log_row, entry.name, verdict)
 
+    val press = remember { MutableInteractionSource() }
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
+            .pressScale(press)
+            .clickable(
+                interactionSource = press,
+                indication = LocalIndication.current,
+                onClick = onClick,
+            )
             .padding(horizontal = 16.dp, vertical = 10.dp)
             .semantics { contentDescription = rowDescription },
         verticalAlignment = Alignment.CenterVertically,
@@ -365,8 +375,7 @@ internal fun LogRow(entry: LogEntry, override: Boolean?, onClick: () -> Unit) {
         Column(Modifier.weight(1f)) {
             Text(
                 text = entry.name,
-                style = MaterialTheme.typography.bodyMedium,
-                fontFamily = FontFamily.Monospace,
+                style = monoBody,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )

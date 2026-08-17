@@ -69,6 +69,7 @@
     <string name="pause_5m">5 min</string>
     <string name="pause_30m">30 min</string>
     <string name="pause_1h">1 hour</string>
+    <string name="pause_more">More pause durations</string>
     <string name="pause_until">Filtering resumes at %1$s</string>
 
     <!-- Log -->

@@ -19,13 +19,17 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.MoreHoriz
+import androidx.compose.material3.ButtonGroup
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ContainedLoadingIndicator
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.FilledIconButton
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialShapes
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -280,17 +284,28 @@ private fun PauseControls(
         style = MaterialTheme.typography.labelLarge,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
-    Row(
-        Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
+    // A connected button group rather than three loose OutlinedButtons: the three durations are
+    // one related set, and the group gives them the Expressive press interaction where the
+    // pressed button swells and its neighbours yield. They are actions, not a selection — each
+    // one pauses immediately and the control then swaps to the "paused until…" view above — so a
+    // group of clickable items is the honest shape, not a segmented single-select.
+    // The item labels are read here, not inside the builder: the ButtonGroup content lambda is a
+    // plain DSL scope, not a composable one, so stringResource cannot run in it.
+    val label5 = stringResource(R.string.pause_5m)
+    val label30 = stringResource(R.string.pause_30m)
+    val label60 = stringResource(R.string.pause_1h)
+    val moreLabel = stringResource(R.string.pause_more)
+    ButtonGroup(
+        modifier = Modifier.fillMaxWidth(),
+        overflowIndicator = { menuState ->
+            FilledIconButton(onClick = { menuState.show() }) {
+                Icon(Icons.Filled.MoreHoriz, contentDescription = moreLabel)
+            }
+        },
     ) {
-        listOf(
-            5 to R.string.pause_5m,
-            30 to R.string.pause_30m,
-            60 to R.string.pause_1h,
-        ).forEach { (minutes, labelRes) ->
-            OutlinedButton(onClick = { onPause(minutes) }) { Text(stringResource(labelRes)) }
-        }
+        clickableItem(onClick = { onPause(5) }, label = label5)
+        clickableItem(onClick = { onPause(30) }, label = label30)
+        clickableItem(onClick = { onPause(60) }, label = label60)
     }
 }
 

@@ -9,7 +9,9 @@ import android.os.PowerManager
 import android.provider.Settings as AndroidSettings
 import android.text.format.DateUtils
 import android.text.format.Formatter
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -59,6 +61,7 @@ import io.omnishield.ui.components.LocalSnackbar
 import io.omnishield.ui.components.OnResume
 import io.omnishield.ui.components.ScreenScaffold
 import io.omnishield.ui.components.TextInputDialog
+import io.omnishield.ui.components.pressScale
 import kotlinx.coroutines.launch
 
 @Composable
@@ -543,10 +546,17 @@ private fun ActionRow(
     onClick: () -> Unit,
     subtitleMonospace: Boolean = false,
 ) {
+    val press = remember { MutableInteractionSource() }
     Row(
         Modifier
             .fillMaxWidth()
-            .clickable(enabled = enabled, onClick = onClick)
+            .then(if (enabled) Modifier.pressScale(press) else Modifier)
+            .clickable(
+                enabled = enabled,
+                interactionSource = press,
+                indication = LocalIndication.current,
+                onClick = onClick,
+            )
             .padding(16.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
