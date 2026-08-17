@@ -4,8 +4,9 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.provider.Settings
-import android.security.KeyChain
 import android.util.Base64
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -51,7 +52,9 @@ import java.io.ByteArrayInputStream
 import java.security.KeyStore
 import java.security.cert.CertificateFactory
 import java.security.cert.X509Certificate
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * Layer 2 controls: root CA installation and per-app interception opt-in.
@@ -81,6 +84,26 @@ fun SecurityScreen(modifier: Modifier = Modifier, viewModel: SecurityViewModel =
     ) { inner ->
         val snackbar = LocalSnackbar.current
         val scope = rememberCoroutineScope()
+
+        // Since Android 11 an app can no longer hand the system the certificate bytes to
+        // install; the CA-install path in `KeyChain.createInstallIntent` is a silent no-op on
+        // modern devices. The only route left is to write the certificate to a file the user
+        // picks, then have them import it by hand through Settings — so that is what the button
+        // does, and the card spells out the manual steps.
+        val savePem = state.caPem
+        // Resolved in composition so the callback does not query resources off a captured
+        // Context, which lint flags as not configuration-aware.
+        val savedMessage = stringResource(R.string.https_saved)
+        val saveFailedMessage = stringResource(R.string.https_save_failed)
+        val saveCertificate = rememberLauncherForActivityResult(
+            ActivityResultContracts.CreateDocument("application/x-x509-ca-cert"),
+        ) { uri ->
+            if (uri == null) return@rememberLauncherForActivityResult
+            scope.launch {
+                val ok = withContext(Dispatchers.IO) { writeCertificate(context, uri, savePem) }
+                snackbar.showSnackbar(if (ok) savedMessage else saveFailedMessage)
+            }
+        }
 
         Column(
             modifier = Modifier
@@ -135,7 +158,7 @@ fun SecurityScreen(modifier: Modifier = Modifier, viewModel: SecurityViewModel =
             CertificateCard(
                 caReady = state.caPem.isNotEmpty(),
                 installed = state.caInstalled,
-                onInstall = { installCertificate(context, state.caPem) },
+                onSave = { saveCertificate.launch("omnishield-ca.crt") },
                 onSettings = { openSecuritySettings(context) },
             )
 
@@ -264,7 +287,7 @@ private fun InfoCard(
 private fun CertificateCard(
     caReady: Boolean,
     installed: Boolean,
-    onInstall: () -> Unit,
+    onSave: () -> Unit,
     onSettings: () -> Unit,
 ) {
     Card {
@@ -309,8 +332,19 @@ private fun CertificateCard(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
+            // The manual steps, shown only when there is a certificate to import and it is not
+            // trusted yet. Android gives an app no way to install a CA directly, so these steps
+            // are the feature — spelled out because the Settings path is buried and renamed by
+            // several vendors.
+            if (caReady && !installed) {
+                Text(
+                    stringResource(R.string.https_ca_steps),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(enabled = caReady && !installed, onClick = onInstall) {
+                Button(enabled = caReady && !installed, onClick = onSave) {
                     Text(stringResource(R.string.https_install))
                 }
                 OutlinedButton(onClick = onSettings) {
@@ -365,25 +399,18 @@ internal fun BrowserRow(
 }
 
 /**
- * Hands the certificate to the system installer.
+ * Writes the CA to a file the user chose, as DER-encoded bytes with a `.crt` name.
  *
- * `KeyChain.createInstallIntent` is tried first because it lands the user directly on the
- * naming dialog. Android 11+ increasingly routes CA installation through Settings instead, so
- * a failure here falls back rather than dead-ends.
+ * DER with a `.crt` extension is what Android's certificate installer accepts from the Storage
+ * Access Framework picker on every version and vendor. The bytes go to a user-picked location
+ * (via `CreateDocument`) rather than app-private storage, because the whole point is that the
+ * user can then reach the file from the Settings importer.
  */
-private fun installCertificate(context: Context, pem: String) {
-    val der = pemToDer(pem)
-
-    if (der != null) {
-        val intent = KeyChain.createInstallIntent().apply {
-            putExtra(KeyChain.EXTRA_CERTIFICATE, der)
-            putExtra(KeyChain.EXTRA_NAME, "OmniShield Root CA")
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        }
-        if (runCatching { context.startActivity(intent) }.isSuccess) return
-    }
-    openSecuritySettings(context)
-}
+private fun writeCertificate(context: Context, uri: Uri, pem: String): Boolean = runCatching {
+    val der = pemToDer(pem) ?: return false
+    context.contentResolver.openOutputStream(uri)?.use { it.write(der) } ?: return false
+    true
+}.getOrDefault(false)
 
 private fun openSecuritySettings(context: Context) {
     runCatching {
