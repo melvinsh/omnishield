@@ -5,10 +5,18 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 OmniShield is a non-root Android ad/tracker blocker: a Kotlin/Compose app over a Rust core that
 owns the entire packet path behind `VpnService`.
 
-`README.md` holds the measured verification results, the version-constraint table, and known
-platform limitations. Read it before changing build config or claiming a behaviour works. Its
-**Efficiency** section records the before/after cost numbers and, more usefully, the three
-things that look like obvious waste but are not — check there before "fixing" one of them.
+`README.md` is written for someone installing the app, not for working on it. The engineering
+record lives in `docs/`:
+
+| File | What to read it for |
+|---|---|
+| `docs/architecture.md` | The packet path, the filtering layers, routing, and the platform limitations |
+| `docs/development.md` | Toolchain, emulators, offline probes, and the version-constraint table |
+| `docs/verification.md` | What was measured on device. Read before claiming a behaviour works |
+| `docs/efficiency.md` | Before/after cost numbers, and the six things that look like waste but are not. Check there before "fixing" one of them |
+| `docs/interface.md` | Material 3 Expressive, and why each screen is shaped the way it is |
+
+Some of what follows is repeated in those files. When they disagree, the code wins, and fix both.
 
 ## Environment
 
@@ -25,7 +33,7 @@ cargo-installed binaries like `cargo-ndk`). Gradle resolves `cargo` itself via `
 `app/build.gradle.kts`, so builds work without these exports; the Rust commands do not.
 
 Git: `master` on `github.com/melvinsh/omnishield` (private). Build outputs, `core/target/`,
-`app/src/main/jniLibs/` and the ~13 MB of downloaded blocklists are gitignored — the lists are
+`app/src/main/jniLibs/` and the ~13 MB of downloaded blocklists are gitignored; the lists are
 pulled off a device on demand (see the offline probes below), while `core/probe-*.txt` are
 checked-in fixtures and should stay that way.
 
@@ -36,17 +44,18 @@ checked-in fixtures and should stay that way.
 ./gradlew installDebug
 ```
 
-Measuring cost (the harness the Efficiency numbers came from lives in the session scratchpad;
-recreate it if needed). CPU time is the battery proxy — battery itself is not measurable on
-QEMU. Compare `/proc/<pid>/stat` utime+stime deltas over a fixed window, with the screen both
-on and off, plus `dumpsys meminfo io.omnishield` at startup *and* 60 s later; the startup peak
-and the steady state are different numbers and the peak is the one caching addresses.
+Measuring cost (the scripts behind the `docs/efficiency.md` numbers lived in a session
+scratchpad; recreate them if needed). CPU time is the battery proxy, since battery itself is not
+measurable on QEMU. Compare `/proc/<pid>/stat` utime+stime deltas over a fixed window, with the
+screen both on and off, plus `dumpsys meminfo io.omnishield` at startup *and* 60 s later; the
+startup peak and the steady state are different numbers, and the peak is the one caching
+addresses.
 
-Tests — all three suites must pass:
+Tests, all three of which must pass:
 
 ```bash
 cd core && cargo test                      # 101 host-native tests, no emulator
-./gradlew testDebugUnitTest                # 49 Kotlin unit tests (Robolectric)
+./gradlew testDebugUnitTest                # 58 Kotlin unit tests (Robolectric)
 ./gradlew connectedDebugAndroidTest        # 36 Room + Compose UI tests, needs an emulator
 ```
 
@@ -59,9 +68,10 @@ cd core && cargo test filter::tests::www_rule_does_not_widen_to_apex
   -Pandroid.testInstrumentationRunnerArguments.class=io.omnishield.data.db.DatabaseTest
 ```
 
-Building the Rust core alone **must run from `core/`** — cargo-ndk invokes `cargo metadata` in
-the working directory, so `--manifest-path` alone is not enough. Note `-P` (capital) is the API
-level; lowercase `-p` means `--package` in cargo-ndk 4.x and fails with `unknown package: 29`:
+Building the Rust core alone **must run from `core/`**, because cargo-ndk invokes
+`cargo metadata` in the working directory and `--manifest-path` alone is not enough. Note `-P`
+(capital) is the API level; lowercase `-p` means `--package` in cargo-ndk 4.x and fails with
+`unknown package: 29`:
 
 ```bash
 cd core && cargo ndk -t arm64-v8a -P 29 -o ../app/src/main/jniLibs build --release
@@ -76,7 +86,7 @@ cargo run --release --example dnstest  -- probe-hosts.txt <list.txt> [more.txt .
 cargo run --release --example ruletest -- easylist.txt easyprivacy.txt
 ```
 
-**`dnstest`'s first argument is the list of hostnames to *test*, not a blocklist** — one bare
+**`dnstest`'s first argument is the list of hostnames to *test*, not a blocklist**: one bare
 hostname per line. Passing a blocklist there reports `blocked 0/N` and looks exactly like a
 catastrophic filtering regression. Everything after it is a blocklist. Run it twice: once with
 hostnames that must be blocked and once with legitimate ones that must not, because
@@ -123,7 +133,7 @@ happens".
 1. **JNI symbol mangling.** `core/src/android.rs` exports 14 `Java_io_omnishield_bridge_NativeBridge_*`
    functions matching 14 `external fun`s in `bridge/NativeBridge.kt`. Renaming that object or
    its package requires renaming every Rust export in lockstep. (The package is `bridge`, not
-   `native` — `native` is a Java reserved word.)
+   `native`, which is a Java reserved word.)
 2. **Reverse callbacks.** `core/src/jvm.rs` calls Kotlin by name *and JNI signature string*:
    `protect(I)Z`, `lookupUid(ILjava/lang/String;ILjava/lang/String;I)I`, `packageForUid(I)Ljava/lang/String;`
    on `OmniShieldVpnService`. These are `@Keep`-annotated and listed in `proguard-rules.pro`.
@@ -134,7 +144,7 @@ happens".
    than as nothing happening. The loop sleeps until there is something to do (backstop
    `IDLE_CEILING_MS`, 30 s) instead of waking on a timer, so anything that changes state from
    another thread must call `Runtime::wake`: the JNI config and rule setters, `Runtime::stop`,
-   and the DoH worker — whose answers arrive on an mpsc channel the loop only drains while
+   and the DoH worker, whose answers arrive on an mpsc channel the loop only drains while
    awake. `core/src/wake.rs` documents all three. A new producer that forgets to wake looks
    like a hung tunnel, and the 30 s ceiling is the only reason it self-heals instead of
    staying wedged.
@@ -145,19 +155,19 @@ One thread drives a single `poll()` over the TUN descriptor plus every upstream 
 problem it solves: smoltcp sockets bind to a *specific* endpoint, but a transparent tunnel must
 accept arbitrary destinations. Two mechanisms combine:
 
-- `Interface::set_any_ip(true)` — accept packets not addressed to us.
+- `Interface::set_any_ip(true)`, to accept packets not addressed to us.
 - Every packet is peeked before smoltcp sees it; on a SYN to a new 4-tuple a socket is created
   already listening on that exact destination, *then* the frame is handed over.
 
-`packet::parse` returning `None` means **drop**, never "forward unfiltered" — passing a packet we
+`packet::parse` returning `None` means **drop**, never "forward unfiltered": passing a packet we
 failed to parse would be a filtering bypass.
 
 ### The tunnel does not claim the LAN
 
 `TunnelRoutes` computes the complement of the private ranges rather than routing `0.0.0.0/0`,
-and this is load-bearing. With a default route, an **inbound** LAN connection is dead on
+and reverting that breaks the LAN. With a default route, an **inbound** LAN connection is dead on
 arrival: the SYN reaches the device on the physical interface, but the reply is routed by
-destination into the TUN, and the core only creates a socket on a peeked *SYN* — a SYN-ACK for
+destination into the TUN, and the core only creates a socket on a peeked *SYN*, and a SYN-ACK for
 an unknown 4-tuple is dropped. Anything that listens (file transfer, media server, `adb
 connect`) silently failed while the tunnel was up.
 
@@ -166,30 +176,30 @@ Two things not to break when touching it:
 - **`10.0.0.0/24` is re-added explicitly.** It sits inside the excluded `10/8` and carries the
   DNS sentinel every app is handed. Drop it and name resolution stops device-wide.
 - **`Builder.excludeRoute` is API 33 and `minSdk` is 29**, which is why the complement is
-  computed. For the same reason `BigInteger.TWO` is unusable here — it is API 33, the unit
+  computed. For the same reason `BigInteger.TWO` is unusable here. It is API 33, the unit
   tests run on a desktop JVM where it exists, and only lint catches it.
 
 ### Filtering layers
 
 | Layer | Module | Sees |
 |---|---|---|
-| 1 — DNS sinkholing | `dns.rs` + `filter.rs` + `dns_cache.rs` | All traffic |
-| 2 — TLS termination | `ca.rs` + `mitm.rs` | Opt-in per UID only |
-| 3 — ABP rules + cosmetic | `content.rs` | Decrypted traffic only |
+| 1, DNS sinkholing | `dns.rs` + `filter.rs` + `dns_cache.rs` | All traffic |
+| 2, TLS termination | `ca.rs` + `mitm.rs` | Opt-in per UID only |
+| 3, ABP rules + cosmetic | `content.rs` | Decrypted traffic only |
 
 Layer 2 is opt-in and bypassed by default, because since Android 7 apps ignore user-installed
-CAs unless they opt in — it reaches Chrome-family browsers and little else. An app that rejects
+CAs unless they opt in, so it reaches Chrome-family browsers and little else. An app that rejects
 our certificate is recorded and permanently bypassed rather than left broken.
 
 Filters are **built once and cached**. `nativeLoadFilters` only *stages* text;
 `nativeCommitFilters` builds the index and writes `filters.bin` + `content.bin` (the serialized
 `adblock` engine) under `cache_dir`, keyed by a string Kotlin derives from the name/size/mtime
 of every list file. `nativeLoadCachedFilters` restores both and returns -1 on a miss. A warm
-start therefore never opens the ~13 MB of lists at all. Any doubt — missing, truncated, wrong
-key, wrong version — falls back to parsing; see `core/src/cache.rs`.
+start therefore never opens the ~13 MB of lists at all. Any doubt, whether missing, truncated,
+wrongly keyed or the wrong version, falls back to parsing; see `core/src/cache.rs`.
 
 `filter.rs` stores the ~430k list domains as one UTF-8 blob plus a sorted offset index (binary
-search), not `HashSet<String>`. Its existing tests are the contract for any change here —
+search), not `HashSet<String>`. Its existing tests are the contract for any change here,
 particularly `does_not_block_sibling_suffix` and `www_rule_does_not_widen_to_apex`. User
 overrides are checked *before* the lists at each suffix level, so an explicit choice beats a
 downloaded rule at the same specificity.
@@ -202,15 +212,15 @@ DNS list formats and ABP browser syntax are **not interchangeable**. `FilterRepo
 `OmniShieldVpnService` → `TunnelRepository` (process-level observable state) and
 `LogRepository` (durable Room history + daily rollups). Screens read ViewModels only; they never
 touch `NativeBridge` or construct repositories inline. The log screen reads Room, not a
-repository field — `TunnelRepository` used to also hold a `liveLog` that the service rewrote
+repository field. `TunnelRepository` used to also hold a `liveLog` that the service rewrote
 twice a second and nothing ever read.
 
 `LogRepository` batches on purpose: inserts go in per drain inside one transaction, retention
 pruning runs on a five-minute timer, and daily counter deltas accumulate in memory and flush
-every 30 s (and on tunnel stop, via `flushPending` — skip that call and the last few minutes of
+every 30 s (and on tunnel stop, via `flushPending`. Skip that call and the last few minutes of
 a session are lost).
 
-`TunnelStatus` is a sealed type including `Failed(reason)` — a tunnel that could not start must
+`TunnelStatus` is a sealed type including `Failed(reason)`. A tunnel that could not start must
 render its reason, not fall back to looking like "not connected".
 
 Room has **no destructive migration fallback**. Schema changes need a real migration; schemas
@@ -218,7 +228,7 @@ are exported to `app/schemas/`.
 
 ### The screens
 
-Five tabs, one file each in `ui/`, all wrapped in `ui/components/ScreenScaffold` — which
+Five tabs, one file each in `ui/`, all wrapped in `ui/components/ScreenScaffold`, which
 supplies the title bar (title + one-line statement of what the screen is for) and the
 `SnackbarHost` reachable through `LocalSnackbar`. A screen without it renders with no title and
 throws on the first snackbar, both deliberate: every screen must say what it is, and every
@@ -229,8 +239,8 @@ because each `TopAppBar` applies the status-bar inset itself. Padding both doubl
 
 Three things in here are not free choices:
 
-- **`ruleSummary` (firewall) and `overrideTarget` (log) are the load-bearing bits of UI logic**,
-  and both have unit tests. The firewall's switches *block*, which is the opposite of the usual
+- **`ruleSummary` (firewall) and `overrideTarget` (log) carry the real UI logic**, and both have
+  unit tests. The firewall's switches *block*, which is the opposite of the usual
   reading, so the row states its rule in words and the switch is a second representation of it.
   `overrideTarget` decides whether a log row even has a domain to override: a `tcp` row is
   labelled `address:port` and an `http` row with a full URL, and a user rule keyed on either
@@ -243,16 +253,16 @@ Three things in here are not free choices:
   the manual "Refresh now" in Settings therefore says the lists load on the next connect rather
   than implying an effect it does not have.
 
-## Build constraints worth knowing before touching Gradle
+## Build constraints, before touching Gradle
 
-`README.md` has the full table. The ones that bite hardest:
+`docs/development.md` has the full table. The ones that bite hardest:
 
 - **AGP 9.x is mandatory** (current AndroidX declares `requires Android Gradle plugin 9.1.0 or
-  higher`), and AGP 9 has built-in Kotlin — applying the `kotlin-android` plugin is a hard
+  higher`), and AGP 9 has built-in Kotlin, so applying the `kotlin-android` plugin is a hard
   failure.
 - **`compileSdk` 37 / `targetSdk` 34** are deliberately different; the platform package is
   `platforms;android-37.0` (the `.0` is required).
-- **`minSdk` 29 is load-bearing**: `ConnectivityManager.getConnectionOwnerUid` does not exist
+- **`minSdk` 29 cannot go lower**: `ConnectivityManager.getConnectionOwnerUid` does not exist
   below it and `/proc/net` scraping was blocked in the same release, so the per-app firewall is
   impossible on anything older.
 - material3 is pinned to a **1.5.0-alpha** ahead of the BOM for the Expressive component set;
