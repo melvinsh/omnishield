@@ -8,14 +8,13 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
-import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.LargeFlexibleTopAppBar
+import androidx.compose.material3.MediumFlexibleTopAppBar
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
-import androidx.compose.material3.TopAppBarScrollBehavior
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
@@ -42,12 +41,32 @@ val LocalSnackbar = compositionLocalOf<SnackbarHostState> {
 }
 
 /**
+ * How much vertical presence the screen's title bar starts with. Both collapse to the same
+ * one-line bar as the content scrolls.
+ */
+enum class BarStyle {
+    /** For screens whose hero lives in the content — the bar defers to it (the dashboard). */
+    Medium,
+
+    /** The default: the large Expressive header that carries the screen's identity itself. */
+    Large,
+}
+
+/**
  * Standard chrome for a top-level screen: a title, a one-line statement of what the screen is
  * for, and somewhere for feedback to appear.
  *
  * Every screen used to be dropped straight into the navigation `Scaffold`'s content slot with
  * no bar of any kind, so no screen said what it was — the reported symptom on the firewall
  * page, but true of all five.
+ *
+ * The bar is a *flexible* app bar, not the one-line `TopAppBar`: the expanded display-scale
+ * title is the Expressive header treatment, and the subtitle rides in the bar's own subtitle
+ * slot so the two collapse together. The scroll behavior is owned here —
+ * `exitUntilCollapsedScrollBehavior`, the M3 pairing for large bars (enter-always would
+ * re-expand a header this tall on any upward fling mid-list). `verticalScroll` columns
+ * participate through nested scroll exactly like `LazyColumn`s, and content shorter than the
+ * viewport simply leaves the bar expanded.
  *
  * The nested `Scaffold` is intentional. The outer one in `MainActivity` owns the navigation bar
  * and the window insets; this one owns only the title bar and the snackbar, so its own insets
@@ -58,48 +77,46 @@ fun ScreenScaffold(
     title: String,
     modifier: Modifier = Modifier,
     subtitle: String? = null,
-    scrollBehavior: TopAppBarScrollBehavior? = null,
+    barStyle: BarStyle = BarStyle.Large,
     actions: @Composable RowScope.() -> Unit = {},
     content: @Composable (PaddingValues) -> Unit,
 ) {
     val snackbar = remember { SnackbarHostState() }
+    val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
     CompositionLocalProvider(LocalSnackbar provides snackbar) {
         Scaffold(
-            modifier = if (scrollBehavior != null) {
-                modifier
-                    .fillMaxSize()
-                    .nestedScroll(scrollBehavior.nestedScrollConnection)
-            } else {
-                modifier.fillMaxSize()
-            },
+            modifier = modifier
+                .fillMaxSize()
+                .nestedScroll(scrollBehavior.nestedScrollConnection),
             contentWindowInsets = WindowInsets(0, 0, 0, 0),
             topBar = {
-                TopAppBar(
-                    title = { Text(title) },
-                    subtitle = subtitle?.let {
-                        {
-                            Text(
-                                text = it,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                style = MaterialTheme.typography.labelMedium,
-                            )
-                        }
-                    } ?: {},
-                    actions = actions,
-                    scrollBehavior = scrollBehavior,
-                )
+                val titleSlot: @Composable () -> Unit = { Text(title) }
+                // Null when absent, not an empty lambda: the flexible bars size their expanded
+                // height from whether a subtitle exists at all.
+                val subtitleSlot: (@Composable () -> Unit)? = subtitle?.let {
+                    { Text(text = it, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                }
+                when (barStyle) {
+                    BarStyle.Medium -> MediumFlexibleTopAppBar(
+                        title = titleSlot,
+                        subtitle = subtitleSlot,
+                        actions = actions,
+                        scrollBehavior = scrollBehavior,
+                    )
+
+                    BarStyle.Large -> LargeFlexibleTopAppBar(
+                        title = titleSlot,
+                        subtitle = subtitleSlot,
+                        actions = actions,
+                        scrollBehavior = scrollBehavior,
+                    )
+                }
             },
             snackbarHost = { SnackbarHost(snackbar) },
             content = content,
         )
     }
 }
-
-/** Collapses the title bar as the content scrolls, for screens that are long lists. */
-@Composable
-fun rememberCollapsingBar(): TopAppBarScrollBehavior =
-    TopAppBarDefaults.enterAlwaysScrollBehavior()
 
 /**
  * Runs [block] each time the screen returns to the foreground.

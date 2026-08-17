@@ -1,5 +1,6 @@
 package io.omnishield.ui
 
+import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.mutableStateOf
@@ -50,7 +51,10 @@ class FirewallScreenTest {
             var rules by remember { mutableStateOf(initial) }
             var query by remember { mutableStateOf("") }
             OmniShieldTheme(dynamicColor = false) {
-                ScreenScaffold(title = "Firewall") {
+                // The inner padding is applied exactly as the real screen applies it: the
+                // expanded flexible app bar is tall enough to cover unpadded content, and a
+                // tap injected into a covered node lands on the bar instead of the target.
+                ScreenScaffold(title = "Firewall") { inner ->
                     FirewallList(
                         apps = apps,
                         rules = rules,
@@ -60,7 +64,7 @@ class FirewallScreenTest {
                             rules = rules + (rule.uid to rule)
                             onChange(rule)
                         },
-                        modifier = Modifier,
+                        modifier = Modifier.padding(inner),
                     )
                 }
             }

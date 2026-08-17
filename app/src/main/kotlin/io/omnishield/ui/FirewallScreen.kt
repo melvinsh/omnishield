@@ -56,9 +56,10 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.omnishield.R
 import io.omnishield.data.AppRule
+import io.omnishield.ui.components.EmptyState
 import io.omnishield.ui.components.LocalSnackbar
 import io.omnishield.ui.components.ScreenScaffold
-import io.omnishield.ui.components.rememberCollapsingBar
+import io.omnishield.ui.components.animationsEnabled
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -96,24 +97,18 @@ fun FirewallScreen(modifier: Modifier = Modifier, viewModel: FirewallViewModel =
     val apps by viewModel.apps.collectAsStateWithLifecycle()
     val rules by viewModel.rules.collectAsStateWithLifecycle()
     var query by rememberSaveable { mutableStateOf("") }
-    val bar = rememberCollapsingBar()
 
     ScreenScaffold(
         title = stringResource(R.string.title_firewall),
         subtitle = stringResource(R.string.subtitle_firewall),
         modifier = modifier,
-        scrollBehavior = bar,
     ) { inner ->
         val list = apps
         when {
             list == null -> LoadingApps(Modifier.padding(inner))
 
             list.isEmpty() -> Centered(Modifier.padding(inner)) {
-                Text(
-                    text = stringResource(R.string.apps_empty),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                EmptyState(text = stringResource(R.string.apps_empty))
             }
 
             else -> FirewallList(
@@ -233,25 +228,41 @@ internal fun FirewallList(
 
         if (visible.isEmpty()) {
             Centered(Modifier.fillMaxSize()) {
-                Text(
+                EmptyState(
                     text = if (query.isBlank()) {
                         stringResource(R.string.firewall_none_blocked)
                     } else {
                         stringResource(R.string.apps_empty_search, query)
                     },
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    icon = Icons.Filled.Search,
                 )
             }
             return@Column
         }
 
+        // Rows only ever appear or disappear here — on a search or chip change — never
+        // reorder, so the placement animation cannot fight the no-reorder rule above. No
+        // fade-*out*: narrowing the filter must remove rows instantly, not leave each one
+        // ghosting through an exit animation the user (and the tests) can still see.
+        val animate = animationsEnabled()
         LazyColumn(Modifier.fillMaxSize()) {
             items(visible, key = { it.packageName }) { app ->
-                AppRow(app, ruleFor(app)) { updated, previous ->
-                    onToggle(app, updated, previous)
+                Column(
+                    if (animate) {
+                        Modifier.animateItem(fadeOutSpec = null)
+                    } else {
+                        Modifier.animateItem(
+                            fadeInSpec = null,
+                            placementSpec = null,
+                            fadeOutSpec = null,
+                        )
+                    }
+                ) {
+                    AppRow(app, ruleFor(app)) { updated, previous ->
+                        onToggle(app, updated, previous)
+                    }
+                    HorizontalDivider(color = MaterialTheme.colorScheme.surfaceContainerHighest)
                 }
-                HorizontalDivider(color = MaterialTheme.colorScheme.surfaceContainerHighest)
             }
         }
     }

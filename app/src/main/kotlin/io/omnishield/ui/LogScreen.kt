@@ -29,6 +29,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
+import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
@@ -43,6 +44,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.pluralStringResource
@@ -58,10 +60,12 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import io.omnishield.R
 import io.omnishield.data.LogEntry
 import io.omnishield.ui.components.ConfirmDialog
+import io.omnishield.ui.components.EmptyState
+import io.omnishield.ui.components.GroupedColumn
 import io.omnishield.ui.components.LocalSnackbar
+import io.omnishield.ui.components.animationsEnabled
 import io.omnishield.ui.components.ScreenScaffold
 import io.omnishield.ui.components.pressScale
-import io.omnishield.ui.components.rememberCollapsingBar
 import io.omnishield.ui.theme.monoBody
 import java.text.SimpleDateFormat
 import java.util.Calendar
@@ -82,14 +86,12 @@ fun LogScreen(modifier: Modifier = Modifier, viewModel: LogViewModel = viewModel
     val overrides by viewModel.overrides.collectAsStateWithLifecycle()
     var selected by remember { mutableStateOf<LogEntry?>(null) }
     var confirmClear by remember { mutableStateOf(false) }
-    val bar = rememberCollapsingBar()
     val keyboard = LocalSoftwareKeyboardController.current
 
     ScreenScaffold(
         title = stringResource(R.string.title_log),
         subtitle = stringResource(R.string.subtitle_log),
         modifier = modifier,
-        scrollBehavior = bar,
         actions = {
             TextButton(onClick = { confirmClear = true }, enabled = entries.isNotEmpty()) {
                 Text(stringResource(R.string.log_clear))
@@ -150,7 +152,7 @@ fun LogScreen(modifier: Modifier = Modifier, viewModel: LogViewModel = viewModel
 
             if (entries.isEmpty()) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text(
+                    EmptyState(
                         text = if (filter.query.isBlank() &&
                             !filter.blockedOnly &&
                             filter.kind.isEmpty()
@@ -159,26 +161,40 @@ fun LogScreen(modifier: Modifier = Modifier, viewModel: LogViewModel = viewModel
                         } else {
                             stringResource(R.string.log_empty_filtered)
                         },
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             } else {
                 // Timestamps are wall-clock only, so without a day break a row from yesterday
                 // is indistinguishable from one a minute old.
                 val days = remember(entries) { groupByDay(entries) }
+                // Fade-in only, no placement animation: rows arrive in batches at the top at
+                // up to 2 Hz while someone is watching, and animating every visible row's
+                // position on each drain is a permanent wobble, not liveliness.
+                val fadeSpec = if (animationsEnabled()) {
+                    MaterialTheme.motionScheme.defaultEffectsSpec<Float>()
+                } else {
+                    null
+                }
                 LazyColumn(Modifier.fillMaxSize()) {
                     days.forEach { (day, rows) ->
                         item(key = "day-$day") { DayHeader(day) }
                         items(rows, key = { it.seq }) { entry ->
-                            LogRow(
-                                entry = entry,
-                                override = overrideTarget(entry.name)?.let { overrides[it] },
-                                onClick = { selected = entry },
-                            )
-                            HorizontalDivider(
-                                color = MaterialTheme.colorScheme.surfaceContainerHighest
-                            )
+                            Column(
+                                Modifier.animateItem(
+                                    fadeInSpec = fadeSpec,
+                                    placementSpec = null,
+                                    fadeOutSpec = null,
+                                )
+                            ) {
+                                LogRow(
+                                    entry = entry,
+                                    override = overrideTarget(entry.name)?.let { overrides[it] },
+                                    onClick = { selected = entry },
+                                )
+                                HorizontalDivider(
+                                    color = MaterialTheme.colorScheme.surfaceContainerHighest
+                                )
+                            }
                         }
                     }
                 }
@@ -237,7 +253,7 @@ private fun KindChip(kind: String, labelRes: Int, current: String, onSelect: (St
 private fun DayHeader(dayStart: Long) {
     Text(
         text = dayLabel(dayStart),
-        style = MaterialTheme.typography.labelLarge,
+        style = MaterialTheme.typography.titleSmallEmphasized,
         color = MaterialTheme.colorScheme.primary,
         modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 4.dp),
     )
@@ -298,29 +314,51 @@ private fun DomainOverrideSheet(
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
             )
             if (target == null) return@Column
-            HorizontalDivider()
-            if (override != true) {
-                ListItem(
-                    headlineContent = { Text(stringResource(R.string.domain_allow)) },
-                    leadingContent = {
-                        Icon(Icons.Filled.CheckCircle, contentDescription = null)
-                    },
-                    modifier = Modifier.clickable(onClick = onAllow),
-                )
-            }
-            if (override != false) {
-                ListItem(
-                    headlineContent = { Text(stringResource(R.string.domain_block)) },
-                    leadingContent = { Icon(Icons.Filled.Block, contentDescription = null) },
-                    modifier = Modifier.clickable(onClick = onBlock),
-                )
-            }
-            if (override != null) {
-                ListItem(
-                    headlineContent = { Text(stringResource(R.string.domain_clear_override)) },
-                    leadingContent = { Icon(Icons.Filled.Close, contentDescription = null) },
-                    modifier = Modifier.clickable(onClick = onClear),
-                )
+            // The actions as one segmented group; transparent items so the group's own
+            // surface shows through rather than each ListItem painting the sheet colour.
+            val itemColors = ListItemDefaults.colors(containerColor = Color.Transparent)
+            GroupedColumn(
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                color = MaterialTheme.colorScheme.surfaceContainerHigh,
+            ) {
+                if (override != true) {
+                    item {
+                        ListItem(
+                            headlineContent = { Text(stringResource(R.string.domain_allow)) },
+                            leadingContent = {
+                                Icon(Icons.Filled.CheckCircle, contentDescription = null)
+                            },
+                            colors = itemColors,
+                            modifier = Modifier.clickable(onClick = onAllow),
+                        )
+                    }
+                }
+                if (override != false) {
+                    item {
+                        ListItem(
+                            headlineContent = { Text(stringResource(R.string.domain_block)) },
+                            leadingContent = {
+                                Icon(Icons.Filled.Block, contentDescription = null)
+                            },
+                            colors = itemColors,
+                            modifier = Modifier.clickable(onClick = onBlock),
+                        )
+                    }
+                }
+                if (override != null) {
+                    item {
+                        ListItem(
+                            headlineContent = {
+                                Text(stringResource(R.string.domain_clear_override))
+                            },
+                            leadingContent = {
+                                Icon(Icons.Filled.Close, contentDescription = null)
+                            },
+                            colors = itemColors,
+                            modifier = Modifier.clickable(onClick = onClear),
+                        )
+                    }
+                }
             }
         }
     }

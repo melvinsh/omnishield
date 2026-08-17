@@ -23,10 +23,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularWavyProgressIndicator
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
@@ -57,6 +54,8 @@ import io.omnishield.data.TunnelStatus
 import io.omnishield.data.TunnelRepository
 import io.omnishield.data.UpstreamMode
 import io.omnishield.ui.components.ConfirmDialog
+import io.omnishield.ui.components.GroupedColumn
+import io.omnishield.ui.components.GroupedScope
 import io.omnishield.ui.components.LocalSnackbar
 import io.omnishield.ui.components.OnResume
 import io.omnishield.ui.components.ScreenScaffold
@@ -132,35 +131,41 @@ fun SettingsScreen(modifier: Modifier = Modifier, viewModel: SettingsViewModel =
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             Section(stringResource(R.string.settings_dns_title)) {
-                ToggleRow(
-                    title = stringResource(R.string.settings_doh),
-                    subtitle = stringResource(R.string.settings_doh_sub),
-                    checked = settings.upstreamMode == UpstreamMode.DOH,
-                    onChange = { on ->
-                        viewModel.setUpstreamMode(if (on) UpstreamMode.DOH else UpstreamMode.UDP)
-                    },
-                )
-                HorizontalDivider()
+                item {
+                    ToggleRow(
+                        title = stringResource(R.string.settings_doh),
+                        subtitle = stringResource(R.string.settings_doh_sub),
+                        checked = settings.upstreamMode == UpstreamMode.DOH,
+                        onChange = { on ->
+                            viewModel.setUpstreamMode(
+                                if (on) UpstreamMode.DOH else UpstreamMode.UDP
+                            )
+                        },
+                    )
+                }
                 // Was a static label. The repository has always had setters for both fields,
                 // so the resolver was configurable everywhere except in the interface.
-                ActionRow(
-                    title = stringResource(R.string.settings_resolver),
-                    subtitle = if (settings.upstreamMode == UpstreamMode.DOH) {
-                        settings.dohUrl
-                    } else {
-                        settings.upstreamUdp
-                    },
-                    subtitleMonospace = true,
-                    enabled = true,
-                    onClick = { editResolver = true },
-                )
-                HorizontalDivider()
-                ToggleRow(
-                    title = stringResource(R.string.settings_block_dot),
-                    subtitle = stringResource(R.string.settings_block_dot_sub),
-                    checked = settings.blockDot,
-                    onChange = viewModel::setBlockDot,
-                )
+                item {
+                    ActionRow(
+                        title = stringResource(R.string.settings_resolver),
+                        subtitle = if (settings.upstreamMode == UpstreamMode.DOH) {
+                            settings.dohUrl
+                        } else {
+                            settings.upstreamUdp
+                        },
+                        subtitleMonospace = true,
+                        enabled = true,
+                        onClick = { editResolver = true },
+                    )
+                }
+                item {
+                    ToggleRow(
+                        title = stringResource(R.string.settings_block_dot),
+                        subtitle = stringResource(R.string.settings_block_dot_sub),
+                        checked = settings.blockDot,
+                        onChange = viewModel::setBlockDot,
+                    )
+                }
             }
 
             FilterListSection(
@@ -172,82 +177,91 @@ fun SettingsScreen(modifier: Modifier = Modifier, viewModel: SettingsViewModel =
             )
 
             Section(stringResource(R.string.settings_general)) {
-                ToggleRow(
-                    title = stringResource(R.string.settings_start_on_boot),
-                    subtitle = stringResource(R.string.settings_start_on_boot_sub),
-                    checked = settings.startOnBoot,
-                    onChange = viewModel::setStartOnBoot,
-                )
-                HorizontalDivider()
-                ActionRow(
-                    title = stringResource(R.string.settings_battery),
-                    subtitle = if (batteryExempt) {
-                        stringResource(R.string.settings_battery_done)
-                    } else {
-                        stringResource(R.string.settings_battery_sub)
-                    },
-                    enabled = !batteryExempt,
-                    onClick = { requestIgnoreBatteryOptimizations(context) },
-                )
+                item {
+                    ToggleRow(
+                        title = stringResource(R.string.settings_start_on_boot),
+                        subtitle = stringResource(R.string.settings_start_on_boot_sub),
+                        checked = settings.startOnBoot,
+                        onChange = viewModel::setStartOnBoot,
+                    )
+                }
+                item {
+                    ActionRow(
+                        title = stringResource(R.string.settings_battery),
+                        subtitle = if (batteryExempt) {
+                            stringResource(R.string.settings_battery_done)
+                        } else {
+                            stringResource(R.string.settings_battery_sub)
+                        },
+                        enabled = !batteryExempt,
+                        onClick = { requestIgnoreBatteryOptimizations(context) },
+                    )
+                }
             }
 
             // Shown even when empty. Hiding it entirely meant the feature was discoverable
             // only by tapping a log row and noticing what happened.
             Section(stringResource(R.string.settings_overrides)) {
                 if (overrides.isEmpty()) {
-                    Text(
-                        text = stringResource(R.string.settings_overrides_empty),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(16.dp),
-                    )
+                    item {
+                        Text(
+                            text = stringResource(R.string.settings_overrides_empty),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(16.dp),
+                        )
+                    }
                 }
-                overrides.forEachIndexed { index, rule ->
-                    if (index > 0) HorizontalDivider()
-                    val removed = stringResource(R.string.settings_override_removed, rule.domain)
-                    Row(
-                        Modifier
-                            .fillMaxWidth()
-                            .padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Column(Modifier.weight(1f)) {
-                            Text(
-                                rule.domain,
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontFamily = FontFamily.Monospace,
-                            )
-                            Text(
-                                text = if (rule.allow) {
-                                    stringResource(R.string.settings_override_allowed)
-                                } else {
-                                    stringResource(R.string.settings_override_blocked)
-                                },
-                                style = MaterialTheme.typography.labelSmall,
-                                color = if (rule.allow) {
-                                    MaterialTheme.colorScheme.primary
-                                } else {
-                                    MaterialTheme.colorScheme.error
-                                },
-                            )
-                        }
-                        TextButton(onClick = {
-                            viewModel.clearOverride(rule.domain)
-                            scope.launch { snackbar.showSnackbar(removed) }
-                        }) {
-                            Text(stringResource(R.string.domain_clear_override))
+                overrides.forEach { rule ->
+                    item {
+                        val removed =
+                            stringResource(R.string.settings_override_removed, rule.domain)
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Column(Modifier.weight(1f)) {
+                                Text(
+                                    rule.domain,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontFamily = FontFamily.Monospace,
+                                )
+                                Text(
+                                    text = if (rule.allow) {
+                                        stringResource(R.string.settings_override_allowed)
+                                    } else {
+                                        stringResource(R.string.settings_override_blocked)
+                                    },
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = if (rule.allow) {
+                                        MaterialTheme.colorScheme.primary
+                                    } else {
+                                        MaterialTheme.colorScheme.error
+                                    },
+                                )
+                            }
+                            TextButton(onClick = {
+                                viewModel.clearOverride(rule.domain)
+                                scope.launch { snackbar.showSnackbar(removed) }
+                            }) {
+                                Text(stringResource(R.string.domain_clear_override))
+                            }
                         }
                     }
                 }
             }
 
             Section(stringResource(R.string.settings_data)) {
-                ActionRow(
-                    title = stringResource(R.string.settings_clear_log),
-                    subtitle = null,
-                    enabled = true,
-                    onClick = { confirmClear = true },
-                )
+                item {
+                    ActionRow(
+                        title = stringResource(R.string.settings_clear_log),
+                        subtitle = null,
+                        enabled = true,
+                        onClick = { confirmClear = true },
+                    )
+                }
             }
 
             AboutSection(onShowIntro = viewModel::replayOnboarding, context = context)
@@ -293,66 +307,77 @@ private fun FilterListSection(
 ) {
     val context = LocalContext.current
     Section(stringResource(R.string.settings_lists)) {
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                text = if (refreshing) {
-                    stringResource(R.string.settings_lists_refreshing)
+        item {
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = if (refreshing) {
+                        stringResource(R.string.settings_lists_refreshing)
+                    } else {
+                        stringResource(
+                            R.string.settings_lists_sub,
+                            formatCount(ruleCount.toLong()),
+                        )
+                    },
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.weight(1f),
+                )
+                if (refreshing) {
+                    CircularWavyProgressIndicator(Modifier.size(24.dp))
                 } else {
-                    stringResource(R.string.settings_lists_sub, formatCount(ruleCount.toLong()))
-                },
-                style = MaterialTheme.typography.bodyMedium,
-                modifier = Modifier.weight(1f),
-            )
-            if (refreshing) {
-                CircularWavyProgressIndicator(Modifier.size(24.dp))
-            } else {
-                TextButton(onClick = onRefresh) {
-                    Text(stringResource(R.string.settings_refresh_lists))
+                    TextButton(onClick = onRefresh) {
+                        Text(stringResource(R.string.settings_refresh_lists))
+                    }
                 }
             }
         }
         lists.forEach { list ->
-            HorizontalDivider()
-            val listState = progress[list.name]
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .padding(start = 16.dp, end = 16.dp, top = 10.dp, bottom = 10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Column(Modifier.weight(1f)) {
-                    Text(list.name, style = MaterialTheme.typography.bodyMedium)
-                    Text(
-                        text = when (listState) {
-                            ListProgress.Downloading -> stringResource(R.string.settings_lists_downloading)
-                            ListProgress.Failed -> stringResource(R.string.settings_lists_unreachable)
-                            else -> if (list.downloaded) {
-                                stringResource(
-                                    R.string.settings_lists_updated,
-                                    Formatter.formatShortFileSize(context, list.bytes),
-                                    relativeTime(list.updatedAt),
-                                )
+            item {
+                val listState = progress[list.name]
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(start = 16.dp, end = 16.dp, top = 10.dp, bottom = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text(list.name, style = MaterialTheme.typography.bodyMedium)
+                        Text(
+                            text = when (listState) {
+                                ListProgress.Downloading ->
+                                    stringResource(R.string.settings_lists_downloading)
+
+                                ListProgress.Failed ->
+                                    stringResource(R.string.settings_lists_unreachable)
+
+                                else -> if (list.downloaded) {
+                                    stringResource(
+                                        R.string.settings_lists_updated,
+                                        Formatter.formatShortFileSize(context, list.bytes),
+                                        relativeTime(list.updatedAt),
+                                    )
+                                } else {
+                                    stringResource(R.string.settings_lists_never)
+                                }
+                            },
+                            style = MaterialTheme.typography.labelSmall,
+                            color = if (listState == ListProgress.Failed) {
+                                MaterialTheme.colorScheme.error
                             } else {
-                                stringResource(R.string.settings_lists_never)
-                            }
-                        },
-                        style = MaterialTheme.typography.labelSmall,
-                        color = if (listState == ListProgress.Failed) {
-                            MaterialTheme.colorScheme.error
-                        } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                        },
-                    )
-                }
-                // A per-row spinner while this specific list is still in flight, so the ones
-                // that have already landed read as done even while a slow host is still trying.
-                if (listState == ListProgress.Downloading) {
-                    CircularWavyProgressIndicator(Modifier.size(18.dp))
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            },
+                        )
+                    }
+                    // A per-row spinner while this specific list is still in flight, so the
+                    // ones that have already landed read as done even while a slow host is
+                    // still trying.
+                    if (listState == ListProgress.Downloading) {
+                        CircularWavyProgressIndicator(Modifier.size(18.dp))
+                    }
                 }
             }
         }
@@ -379,53 +404,58 @@ private fun relativeTime(at: Long): CharSequence {
 @Composable
 private fun AboutSection(onShowIntro: () -> Unit, context: Context) {
     Section(stringResource(R.string.settings_about)) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(
-                stringResource(R.string.settings_version),
-                style = MaterialTheme.typography.titleSmall,
-            )
-            Text(
-                text = "${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+        item {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(
+                    stringResource(R.string.settings_version),
+                    style = MaterialTheme.typography.titleSmall,
+                )
+                Text(
+                    text = "${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+        item {
+            val url = stringResource(R.string.settings_source_url)
+            ActionRow(
+                title = stringResource(R.string.settings_source),
+                subtitle = url,
+                enabled = true,
+                onClick = {
+                    runCatching {
+                        context.startActivity(
+                            Intent(Intent.ACTION_VIEW, Uri.parse(url))
+                                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        )
+                    }
+                },
             )
         }
-        HorizontalDivider()
-        val url = stringResource(R.string.settings_source_url)
-        ActionRow(
-            title = stringResource(R.string.settings_source),
-            subtitle = url,
-            enabled = true,
-            onClick = {
-                runCatching {
-                    context.startActivity(
-                        Intent(Intent.ACTION_VIEW, Uri.parse(url))
-                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                    )
-                }
-            },
-        )
-        HorizontalDivider()
         // The honest limits were documented in the source and the README and nowhere the user
         // could see them, which is the wrong way round for a tool whose value is trust.
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(
-                stringResource(R.string.settings_limits_title),
-                style = MaterialTheme.typography.titleSmall,
-            )
-            Text(
-                stringResource(R.string.settings_limits_body),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+        item {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(
+                    stringResource(R.string.settings_limits_title),
+                    style = MaterialTheme.typography.titleSmall,
+                )
+                Text(
+                    stringResource(R.string.settings_limits_body),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+        item {
+            ActionRow(
+                title = stringResource(R.string.settings_show_intro),
+                subtitle = null,
+                enabled = true,
+                onClick = onShowIntro,
             )
         }
-        HorizontalDivider()
-        ActionRow(
-            title = stringResource(R.string.settings_show_intro),
-            subtitle = null,
-            enabled = true,
-            onClick = onShowIntro,
-        )
     }
 }
 
@@ -489,22 +519,16 @@ private fun isIpLiteral(host: String): Boolean {
 }
 
 @Composable
-private fun Section(title: String, content: @Composable () -> Unit) {
+private fun Section(title: String, content: GroupedScope.() -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(
             text = title,
-            style = MaterialTheme.typography.titleMedium,
+            style = MaterialTheme.typography.titleMediumEmphasized,
             color = MaterialTheme.colorScheme.primary,
             modifier = Modifier.padding(start = 4.dp),
         )
-        Card(
-            shape = MaterialTheme.shapes.extraLarge,
-            colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-            ),
-        ) {
-            Column(content = { content() })
-        }
+        // Segmented rows rather than one Card with dividers — see GroupedColumn.
+        GroupedColumn(content = content)
     }
 }
 
@@ -515,9 +539,16 @@ private fun ToggleRow(
     checked: Boolean,
     onChange: (Boolean) -> Unit,
 ) {
+    val press = remember { MutableInteractionSource() }
     Row(
         Modifier
             .fillMaxWidth()
+            .pressScale(press)
+            .clickable(
+                interactionSource = press,
+                indication = LocalIndication.current,
+                onClick = { onChange(!checked) },
+            )
             .padding(16.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),

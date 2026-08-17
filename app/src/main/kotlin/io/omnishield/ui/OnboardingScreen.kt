@@ -41,10 +41,13 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.graphics.shapes.Morph
 import io.omnishield.R
+import io.omnishield.ui.components.animationsEnabled
+import io.omnishield.ui.theme.HeroPolygon
+import io.omnishield.ui.theme.MorphShape
 
 private data class Page(val titleRes: Int, val bodyRes: Int, val icon: ImageVector)
 
@@ -83,6 +86,22 @@ fun OnboardingScreen(onFinished: (connect: Boolean) -> Unit) {
     )
     val pageLabel = stringResource(R.string.cd_onboarding_page, index + 1, pages.size)
 
+    // One polygon per page, morphing between neighbours on the same spring that moves the page
+    // dots, so the two travel together. Page one is the shield's own polygon — the badge and
+    // the shield stay one family. The fraction is clamped because the 0.5-damping spring
+    // overshoots and Morph interpolates only within 0..1.
+    val shapes = remember {
+        listOf(HeroPolygon, MaterialShapes.Clover8Leaf, MaterialShapes.SoftBurst)
+    }
+    val morphs = remember(shapes) { List(shapes.size - 1) { Morph(shapes[it], shapes[it + 1]) } }
+    val heroShape = if (animationsEnabled()) {
+        val clamped = progress.coerceIn(0f, (shapes.size - 1).toFloat())
+        val from = clamped.toInt().coerceAtMost(morphs.size - 1)
+        MorphShape(morphs[from], (clamped - from).coerceIn(0f, 1f))
+    } else {
+        shapes[index].toShape()
+    }
+
     Surface(Modifier.fillMaxSize()) {
         Column(
             modifier = Modifier
@@ -95,7 +114,7 @@ fun OnboardingScreen(onFinished: (connect: Boolean) -> Unit) {
             Box(
                 modifier = Modifier
                     .size(180.dp)
-                    .clip(MaterialShapes.Cookie9Sided.toShape())
+                    .clip(heroShape)
                     .background(MaterialTheme.colorScheme.primaryContainer)
                     .semantics { contentDescription = pageLabel },
                 contentAlignment = Alignment.Center,
@@ -114,8 +133,7 @@ fun OnboardingScreen(onFinished: (connect: Boolean) -> Unit) {
 
             Text(
                 text = stringResource(page.titleRes),
-                style = MaterialTheme.typography.headlineMedium,
-                fontWeight = FontWeight.Bold,
+                style = MaterialTheme.typography.headlineMediumEmphasized,
                 textAlign = TextAlign.Center,
             )
             Text(

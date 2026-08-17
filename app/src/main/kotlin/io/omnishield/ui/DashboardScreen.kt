@@ -4,23 +4,32 @@ package io.omnishield.ui
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.MoreHoriz
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ButtonGroup
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -28,39 +37,39 @@ import androidx.compose.material3.ContainedLoadingIndicator
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialShapes
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.ToggleButtonDefaults
 import androidx.compose.material3.TonalToggleButton
-import androidx.compose.material3.toPath
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Matrix
-import androidx.compose.ui.graphics.Outline
-import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.unit.Density
-import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
-import androidx.graphics.shapes.Morph
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.omnishield.R
 import io.omnishield.data.TunnelStatus
+import io.omnishield.ui.components.AnimatedCount
+import io.omnishield.ui.components.BarStyle
+import io.omnishield.ui.components.GroupedColumn
 import io.omnishield.ui.components.ScreenScaffold
+import io.omnishield.ui.components.animationsEnabled
+import io.omnishield.ui.components.pressScale
+import io.omnishield.ui.theme.MorphShape
+import io.omnishield.ui.theme.ShieldMorph
 import java.text.DateFormat
 import java.util.Date
 
@@ -75,6 +84,9 @@ fun DashboardScreen(
     ScreenScaffold(
         title = stringResource(R.string.title_shield),
         subtitle = stringResource(R.string.subtitle_shield),
+        // Medium, not Large: this screen's hero is the badge in the content, and the header
+        // must defer to it rather than push the connect button below the fold.
+        barStyle = BarStyle.Medium,
         modifier = modifier,
     ) { inner ->
         Column(
@@ -87,36 +99,21 @@ fun DashboardScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            ShieldBadge(
-                running = state.isRunning && !state.isPaused,
+            HeroZone(
+                status = state.status,
+                running = state.isRunning,
+                paused = state.isPaused,
                 blocked = state.stats.dnsBlocked,
-            )
-
-            Text(
-                text = when {
-                    state.status is TunnelStatus.Failed -> stringResource(R.string.status_failed)
-                    state.isPaused -> stringResource(R.string.status_paused)
-                    state.isRunning -> stringResource(R.string.status_protected)
-                    state.status is TunnelStatus.Starting ->
-                        stringResource(R.string.status_starting)
-
-                    else -> stringResource(R.string.status_stopped)
-                },
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            if (state.stats.dnsTotal > 0) {
-                Text(
-                    text = stringResource(
+                rateText = if (state.stats.dnsTotal > 0) {
+                    stringResource(
                         R.string.block_rate,
                         state.stats.blockRate,
                         state.stats.dnsTotal,
-                    ),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    textAlign = TextAlign.Center,
-                )
-            }
+                    )
+                } else {
+                    null
+                },
+            )
 
             // A failure that renders as plain "not protected" is indistinguishable from the
             // user simply not having connected, so the reason is shown explicitly.
@@ -201,18 +198,111 @@ fun DashboardScreen(
                 )
             }
 
-            SettingRow(
-                title = stringResource(R.string.setting_filtering),
-                subtitle = stringResource(R.string.setting_filtering_sub),
-                checked = state.settings.filteringEnabled,
-                onChange = viewModel::setFiltering,
+            GroupedColumn {
+                item {
+                    SettingRow(
+                        title = stringResource(R.string.setting_filtering),
+                        subtitle = stringResource(R.string.setting_filtering_sub),
+                        checked = state.settings.filteringEnabled,
+                        onChange = viewModel::setFiltering,
+                    )
+                }
+                item {
+                    SettingRow(
+                        title = stringResource(R.string.setting_quic),
+                        subtitle = stringResource(R.string.setting_quic_sub),
+                        checked = state.settings.blockQuic,
+                        onChange = viewModel::setBlockQuic,
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * The tinted state zone: the badge, the status line and the block rate share one surface whose
+ * *container role* carries the tunnel state — primaryContainer while protecting,
+ * tertiaryContainer paused, secondaryContainer starting, plain surfaceContainerLow otherwise.
+ * State changes recolour the whole zone rather than only the badge, which is what makes them
+ * legible even under a muted wallpaper palette. Both colours animate on the theme's motion so
+ * the change reads as one event.
+ *
+ * The connect button deliberately sits *outside* this zone: the tonal variant's whole rationale
+ * (see [ConnectButton]) is how it reads against a bare surface, and container-on-container
+ * pairings under arbitrary dynamic palettes are not guaranteed to keep it distinct.
+ */
+@Composable
+private fun HeroZone(
+    status: TunnelStatus,
+    running: Boolean,
+    paused: Boolean,
+    blocked: Long,
+    rateText: String?,
+) {
+    val failed = status is TunnelStatus.Failed
+    val starting = status is TunnelStatus.Starting
+    val protecting = running && !paused
+    val spec = MaterialTheme.motionScheme.defaultEffectsSpec<Color>()
+    val container by animateColorAsState(
+        targetValue = when {
+            protecting -> MaterialTheme.colorScheme.primaryContainer
+            running && paused -> MaterialTheme.colorScheme.tertiaryContainer
+            starting -> MaterialTheme.colorScheme.secondaryContainer
+            else -> MaterialTheme.colorScheme.surfaceContainerLow
+        },
+        animationSpec = spec,
+        label = "heroContainer",
+    )
+    // Animated alongside the container: Surface's own contentColorFor only resolves exact
+    // token values, so mid-animation it would fall back to the outer content colour.
+    val content by animateColorAsState(
+        targetValue = when {
+            protecting -> MaterialTheme.colorScheme.onPrimaryContainer
+            running && paused -> MaterialTheme.colorScheme.onTertiaryContainer
+            starting -> MaterialTheme.colorScheme.onSecondaryContainer
+            else -> MaterialTheme.colorScheme.onSurfaceVariant
+        },
+        animationSpec = spec,
+        label = "heroContent",
+    )
+
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.extraLarge,
+        color = container,
+        contentColor = content,
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp, vertical = 24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            ShieldBadge(running = protecting, blocked = blocked)
+            // A failure that renders in the zone's quiet colours would read as merely "not
+            // connected", so the words get the error role — the reason itself is the banner
+            // below the zone.
+            Text(
+                text = when {
+                    failed -> stringResource(R.string.status_failed)
+                    paused -> stringResource(R.string.status_paused)
+                    running -> stringResource(R.string.status_protected)
+                    starting -> stringResource(R.string.status_starting)
+                    else -> stringResource(R.string.status_stopped)
+                },
+                style = MaterialTheme.typography.headlineSmallEmphasized,
+                color = if (failed) MaterialTheme.colorScheme.error else Color.Unspecified,
+                modifier = Modifier.padding(top = 12.dp),
             )
-            SettingRow(
-                title = stringResource(R.string.setting_quic),
-                subtitle = stringResource(R.string.setting_quic_sub),
-                checked = state.settings.blockQuic,
-                onChange = viewModel::setBlockQuic,
-            )
+            if (rateText != null) {
+                Text(
+                    text = rateText,
+                    style = MaterialTheme.typography.bodyMedium,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.padding(top = 2.dp),
+                )
+            }
         }
     }
 }
@@ -223,6 +313,9 @@ fun DashboardScreen(
  * `Starting` is a state of its own rather than an early "Disconnect": establishing the
  * interface and loading filters takes long enough on a cold cache to look like nothing
  * happened, and a button that has already changed its label gives the user nothing to wait on.
+ *
+ * Sized with the Expressive Large button tokens — the matched `shapesFor` set is what gives the
+ * toggle its full square-to-round morph between unchecked, checked and pressed at this scale.
  */
 @Composable
 private fun ConnectButton(running: Boolean, starting: Boolean, onClick: () -> Unit) {
@@ -230,16 +323,18 @@ private fun ConnectButton(running: Boolean, starting: Boolean, onClick: () -> Un
         checked = running,
         onCheckedChange = { onClick() },
         enabled = !starting,
+        shapes = ToggleButtonDefaults.shapesFor(ButtonDefaults.LargeContainerHeight),
+        contentPadding = ButtonDefaults.contentPaddingFor(ButtonDefaults.LargeContainerHeight),
         modifier = Modifier
+            .padding(top = 4.dp)
             .fillMaxWidth()
-            .height(64.dp)
-            .padding(top = 4.dp),
+            .heightIn(min = ButtonDefaults.LargeContainerHeight),
     ) {
         if (starting) {
-            ContainedLoadingIndicator(Modifier.size(32.dp))
+            ContainedLoadingIndicator(Modifier.size(40.dp))
             Text(
                 text = stringResource(R.string.action_connecting),
-                style = MaterialTheme.typography.titleLarge,
+                style = MaterialTheme.typography.titleLargeEmphasized,
                 modifier = Modifier.padding(start = 12.dp),
             )
         } else {
@@ -249,7 +344,7 @@ private fun ConnectButton(running: Boolean, starting: Boolean, onClick: () -> Un
                 } else {
                     stringResource(R.string.action_connect)
                 },
-                style = MaterialTheme.typography.titleLarge,
+                style = MaterialTheme.typography.titleLargeEmphasized,
             )
         }
     }
@@ -303,9 +398,11 @@ private fun PauseControls(
             }
         },
     ) {
-        clickableItem(onClick = { onPause(5) }, label = label5)
-        clickableItem(onClick = { onPause(30) }, label = label30)
-        clickableItem(onClick = { onPause(60) }, label = label60)
+        // Equal weights, so the three durations divide the row into a full-width band of
+        // three rather than hugging their labels at the start edge.
+        clickableItem(onClick = { onPause(5) }, label = label5, weight = 1f)
+        clickableItem(onClick = { onPause(30) }, label = label30, weight = 1f)
+        clickableItem(onClick = { onPause(60) }, label = label60, weight = 1f)
     }
 }
 
@@ -333,12 +430,17 @@ private fun Banner(
 
 /**
  * The hero element: the blocked count inside a shape that **morphs** between two
- * [MaterialShapes] as protection turns on and off.
+ * [androidx.compose.material3.MaterialShapes] as protection turns on and off — the
+ * [ShieldMorph] token, rendered through the shared [MorphShape].
  *
  * This is the defining gesture of Material 3 Expressive. The system ships a catalogue of
  * non-rectangular shapes and a `Morph` that interpolates between any two of them, so state
  * changes are carried by geometry rather than by a colour swap on yet another rounded
  * rectangle. Interpolation runs on a low-stiffness spring so it visibly overshoots and settles.
+ *
+ * While protection is on, the sun turns — one revolution every 90 seconds, too slow to watch
+ * but enough that a glance reads "on". Only the shape layer rotates; the count stays upright.
+ * Gated on [animationsEnabled] like every decorative motion here.
  *
  * The number is now labelled. On its own it was a large figure with no unit whose only caption
  * was the status line beneath it — which, when the tunnel was off, read "Not protected" and
@@ -346,7 +448,6 @@ private fun Banner(
  */
 @Composable
 private fun ShieldBadge(running: Boolean, blocked: Long) {
-    val morph = remember { Morph(MaterialShapes.Cookie9Sided, MaterialShapes.Sunny) }
     val progress by animateFloatAsState(
         targetValue = if (running) 1f else 0f,
         animationSpec = spring(dampingRatio = 0.45f, stiffness = Spring.StiffnessLow),
@@ -373,6 +474,21 @@ private fun ShieldBadge(running: Boolean, blocked: Long) {
         stringResource(R.string.cd_shield_stopped, blocked)
     }
 
+    val angle: Float
+    if (running && animationsEnabled()) {
+        val idle = rememberInfiniteTransition(label = "shieldIdle")
+        angle = idle.animateFloat(
+            initialValue = 0f,
+            targetValue = 360f,
+            animationSpec = infiniteRepeatable(
+                tween(durationMillis = 90_000, easing = LinearEasing)
+            ),
+            label = "shieldRotation",
+        ).value
+    } else {
+        angle = 0f
+    }
+
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier.clearAndSetSemantics { contentDescription = description },
@@ -380,60 +496,27 @@ private fun ShieldBadge(running: Boolean, blocked: Long) {
         Box(
             modifier = Modifier
                 .padding(top = 8.dp)
-                .size(220.dp)
-                .clip(MorphShape(morph, progress))
-                .background(container),
+                .size(220.dp),
             contentAlignment = Alignment.Center,
         ) {
-            Text(
-                text = formatCount(blocked),
-                style = MaterialTheme.typography.displayLarge,
-                fontWeight = FontWeight.Bold,
+            Box(
+                Modifier
+                    .matchParentSize()
+                    .graphicsLayer { rotationZ = angle }
+                    .clip(MorphShape(ShieldMorph, progress))
+                    .background(container)
+            )
+            AnimatedCount(
+                value = formatCount(blocked),
+                style = MaterialTheme.typography.displayLargeEmphasized,
                 color = onContainer,
             )
         }
         Text(
             text = stringResource(R.string.shield_total_label),
             style = MaterialTheme.typography.labelLarge,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(top = 8.dp),
         )
-    }
-}
-
-/**
- * Adapts a [Morph] to a Compose [Shape].
- *
- * The morph path is produced in the polygon's own coordinate space, so it is measured and then
- * uniformly scaled and centred into whatever box the caller gave us. Deriving the scale from
- * the path's actual bounds — rather than assuming a normalised 0..1 box — keeps the shape
- * correct for every entry in the catalogue, including the asymmetric ones.
- *
- * A `data class` on purpose. `Modifier.clip` caches the outline it last built and only rebuilds
- * when the `Shape` compares unequal; as a plain class every recomposition produced an instance
- * that was never equal to the previous one, so a fresh `Morph.toPath` plus a `Matrix` plus a
- * full path transform ran on every stats tick even when `progress` had not moved at all.
- */
-private data class MorphShape(private val morph: Morph, private val progress: Float) : Shape {
-    override fun createOutline(
-        size: Size,
-        layoutDirection: LayoutDirection,
-        density: Density,
-    ): Outline {
-        val path = morph.toPath(progress)
-        val bounds = path.getBounds()
-        if (bounds.width <= 0f || bounds.height <= 0f) return Outline.Generic(path)
-
-        val scale = minOf(size.width / bounds.width, size.height / bounds.height)
-        val matrix = Matrix().apply {
-            translate(
-                x = (size.width - bounds.width * scale) / 2f - bounds.left * scale,
-                y = (size.height - bounds.height * scale) / 2f - bounds.top * scale,
-            )
-            scale(scale, scale)
-        }
-        path.transform(matrix)
-        return Outline.Generic(path)
     }
 }
 
@@ -451,16 +534,16 @@ private fun StatTile(
         colors = CardDefaults.cardColors(containerColor = container, contentColor = content),
     ) {
         Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text(
-                text = value,
-                style = MaterialTheme.typography.headlineMedium,
-                fontWeight = FontWeight.SemiBold,
+            AnimatedCount(
+                value = value,
+                style = MaterialTheme.typography.headlineMediumEmphasized,
             )
             Text(text = label, style = MaterialTheme.typography.bodyMedium)
         }
     }
 }
 
+/** A row of a [GroupedColumn] segment — the group supplies the container and the shape. */
 @Composable
 private fun SettingRow(
     title: String,
@@ -468,35 +551,33 @@ private fun SettingRow(
     checked: Boolean,
     onChange: (Boolean) -> Unit,
 ) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.extraLarge,
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-            contentColor = MaterialTheme.colorScheme.onSurface,
-        ),
+    val press = remember { MutableInteractionSource() }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .pressScale(press)
+            .clickable(
+                interactionSource = press,
+                indication = LocalIndication.current,
+                onClick = { onChange(!checked) },
+            )
+            .padding(20.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(20.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            Column(Modifier.weight(1f)) {
-                Text(title, style = MaterialTheme.typography.titleMedium)
-                Text(
-                    text = subtitle,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            Switch(
-                checked = checked,
-                onCheckedChange = onChange,
-                modifier = Modifier.semantics { contentDescription = title },
+        Column(Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.titleMedium)
+            Text(
+                text = subtitle,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
+        Switch(
+            checked = checked,
+            onCheckedChange = onChange,
+            modifier = Modifier.semantics { contentDescription = title },
+        )
     }
 }
 

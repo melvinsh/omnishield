@@ -1,3 +1,5 @@
+@file:OptIn(ExperimentalMaterial3ExpressiveApi::class)
+
 package io.omnishield.ui
 
 import android.content.Context
@@ -7,12 +9,15 @@ import android.provider.Settings
 import android.util.Base64
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -22,13 +27,15 @@ import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialShapes
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.toShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
@@ -36,6 +43,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
@@ -46,6 +54,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.omnishield.R
+import io.omnishield.ui.components.GroupedColumn
 import io.omnishield.ui.components.LocalSnackbar
 import io.omnishield.ui.components.OnResume
 import io.omnishield.ui.components.ScreenScaffold
@@ -141,9 +150,22 @@ fun SecurityScreen(modifier: Modifier = Modifier, viewModel: SecurityViewModel =
                 ) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
-                        Icon(Icons.Filled.Warning, contentDescription = null)
+                        Box(
+                            modifier = Modifier
+                                .size(40.dp)
+                                .clip(MaterialShapes.Sunny.toShape())
+                                .background(MaterialTheme.colorScheme.tertiary),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.Warning,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onTertiary,
+                                modifier = Modifier.size(22.dp),
+                            )
+                        }
                         Text(
                             stringResource(R.string.https_caveat_title),
                             style = MaterialTheme.typography.titleSmall,
@@ -197,7 +219,7 @@ fun SecurityScreen(modifier: Modifier = Modifier, viewModel: SecurityViewModel =
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(
                     stringResource(R.string.https_apps_title),
-                    style = MaterialTheme.typography.titleSmall,
+                    style = MaterialTheme.typography.titleSmallEmphasized,
                 )
                 Text(
                     text = if (state.settings.mitmEnabled) {
@@ -213,17 +235,18 @@ fun SecurityScreen(modifier: Modifier = Modifier, viewModel: SecurityViewModel =
                 )
             }
 
-            Card {
-                Column {
-                    if (browsers.isEmpty()) {
+            GroupedColumn {
+                if (browsers.isEmpty()) {
+                    item {
                         Text(
                             stringResource(R.string.https_no_browsers),
                             modifier = Modifier.padding(16.dp),
                             style = MaterialTheme.typography.bodySmall,
                         )
                     }
-                    browsers.forEachIndexed { index, app ->
-                        if (index > 0) HorizontalDivider()
+                }
+                browsers.forEach { app ->
+                    item {
                         // Resolved in composition rather than from a captured Context inside
                         // the callback, so it follows a locale or configuration change.
                         val unpinned = stringResource(R.string.https_unpin_done, app.label)
@@ -272,9 +295,25 @@ private fun InfoCard(
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                Icon(icon, contentDescription = null)
+                // The icon in a small shaped container — an echo of the shield's polygon
+                // family. `secondary` on secondaryContainer is a guaranteed-contrast pairing
+                // under any dynamic palette. Decorative: the title carries the meaning.
+                Box(
+                    modifier = Modifier
+                        .size(40.dp)
+                        .clip(MaterialShapes.Cookie12Sided.toShape())
+                        .background(MaterialTheme.colorScheme.secondary),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        imageVector = icon,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSecondary,
+                        modifier = Modifier.size(22.dp),
+                    )
+                }
                 Text(title, style = MaterialTheme.typography.titleSmall)
             }
             Text(body, style = MaterialTheme.typography.bodySmall)
