@@ -8,6 +8,30 @@ The release workflow reads the section matching the tag and uses it as the relea
 
 ## [Unreleased]
 
+### Fixed
+
+- A connection whose upstream socket died — a server reset, a carrier NAT reclaim, or the
+  socket teardown Android performs on every network change — could pin a full CPU core until
+  the tunnel restarted. Upstream read and write errors now tear the connection down, and dead
+  connections whose data can no longer be delivered are reaped instead of held forever. This
+  was the single largest battery cost on a real device.
+- Connections refused by the firewall or that failed to dial leaked 32 KiB each for the life
+  of the tunnel, and made every wakeup a little more expensive than the last.
+- Long-lived UDP flows were torn down and rebuilt every 30 seconds; the far end saw a new
+  source port each time. Sessions now expire on idleness, not on age.
+- The event drain no longer resets to its 500 ms floor on every allowed DNS query while the
+  screen is off; cadence now follows drain volume, so background traffic no longer keeps the
+  service polling at 2 Hz all night.
+
+### Changed
+
+- Blocking QUIC now only applies while HTTPS interception is enabled for at least one app,
+  which is the only layer it serves. Everything else keeps HTTP/3.
+- The persistent notification is not republished while the screen is off, and is refreshed
+  the moment it turns on.
+- Release builds log at info level; the debug tier logged per intercepted request and per
+  dialled connection.
+
 ## [0.2.0] - 2026-08-17
 
 First release.

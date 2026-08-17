@@ -124,10 +124,16 @@ is in Rust at all.
 
 Events flow back by *polling* (`nativeDrainEvents` in `pollCore()`), not by native-to-JVM
 callbacks, which would require attaching the tunnel thread to the JVM per event. The poll
-interval is **adaptive**, not fixed: it starts at 500 ms, doubles while the core reports
-nothing, and is capped at 2 s with a UI bound or 30 s without (`TunnelRepository.uiActive`). A
-drain returning ≥75% of the core's 2000-entry ring snaps it back to the floor, so a busy device
-cannot overflow the ring and lose log rows.
+interval is **adaptive**, not fixed, and its rules differ by screen state (`PollSchedule`):
+while someone is watching (`TunnelRepository.uiActive` *and* the screen interactive), any event
+snaps the interval to the 500 ms floor and the ceiling is 2 s. Screen off, cadence follows
+drain *volume*, not activity — small batches let it double toward 30 s, moderate ones hold,
+large ones halve — because every allowed DNS query is an event, so "any event resets the
+floor" would keep the loop at 2 Hz all night. Either way a drain returning ≥75% of the core's
+2000-entry ring polls below the floor, so a busy device cannot overflow the ring and lose log
+rows. The stats JNI call, the notification republish and the StateFlow writes are all skipped
+when nothing happened and nobody is looking; a screen-on receiver refreshes the notification
+on wake.
 
 ### Four couplings that fail silently
 

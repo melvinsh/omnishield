@@ -7,6 +7,12 @@ All figures measured on an API 34 emulator (`omnishield-34`) with the full rule 
 `/proc/<pid>/stat` deltas over a 300 s window and `dumpsys meminfo`. Battery is not measurable on
 QEMU, so CPU time stands in for it, and it is also the quantity that predicts battery.
 
+An idle number is necessary but nowhere near sufficient — an idle emulator has no background
+traffic, no upstream resets and no frozen apps, which is exactly the weather a tunnel lives in
+on a phone. The failure paths below were each measured under synthetic load (upstream sockets
+destroyed mid-flow the way Android does on a network change, stalled readers, failed dials,
+sustained DNS trickle) and the handling described is what those measurements now show.
+
 | | |
 |---|---|
 | Idle CPU, screen off | 0.4 s/hour |
@@ -30,10 +36,30 @@ and by the DoH worker, whose answers arrive on a channel the loop only drains wh
 producer that changes state without waking the loop looks like a hang, not like slowness, and the
 30 s ceiling is the only reason it self-heals.
 
-The event drain adapts. `PollSchedule` starts at 500 ms, doubles while the core reports
-nothing, and caps at 2 s with the UI in front or 30 s without. Anything arriving snaps it back to
-the floor. A drain returning 75% or more of the core's 2000-entry ring polls *below* the floor,
-because an overflow would silently discard log rows.
+The event drain adapts, and its rules differ by screen state. While someone is watching —
+activity bound *and* screen interactive — any event snaps `PollSchedule` to its 500 ms floor so
+the log stays live to the eye, with a 2 s ceiling. Screen off, cadence follows drain *volume*:
+small batches let the interval double toward 30 s, moderate ones hold it, large ones halve it.
+The distinction matters because every allowed DNS query is an event; resetting the floor on any
+event would keep the loop at 2 Hz for as long as anything on the device has background traffic,
+which is always. A drain returning 75% or more of the core's 2000-entry ring polls *below* the
+floor either way, because an overflow would silently discard log rows. When a drain is empty
+and nobody is looking, the stats JNI call, the StateFlow writes and the notification republish
+are all skipped too; a screen-on receiver refreshes the notification the moment it can be seen.
+
+Connections die with their sockets. An upstream read or write error — a server reset, a
+carrier NAT reclaim, the socket teardown Android performs on every network change — closes the
+upstream fd and withdraws it from the poll set at once, and the sweep reaps any connection
+whose remaining bytes can no longer be delivered, along with sockets aborted before they ever
+became connections (firewall-refused, failed dials). The stakes: `POLLERR` and `POLLHUP` are
+reported whether or not they were requested, so a dead descriptor left in the poll set turns
+the loop into a 100%-of-one-core busy wait until the tunnel restarts. The reap rules live in
+`core/src/relay.rs`, where they are unit-tested on the host.
+
+UDP sessions expire on idleness, not on age. The TTL runs from the last packet in either
+direction, so a long-lived flow keeps one upstream socket instead of being torn down and
+rebuilt — a fresh socket, a JNI `protect()` round trip and a source-port change the far end
+sees as a NAT rebind — every 30 seconds.
 
 Filters are built once and cached. `nativeLoadFilters` stages text; `nativeCommitFilters`
 builds the index and writes `filters.bin` plus a serialized `adblock` engine under `cache_dir`,
@@ -86,7 +112,24 @@ port, and a resolver that opens a fresh socket per lookup gets no reuse.
 ready before the first composition. Making it lazy trades a visible flash on launch for no
 background saving, since the activity owns it either way.
 
-## Constraints for anything touching this
+## The battery screen
+
+OmniShield will rank high in Android's battery list even when it is behaving, and a reader
+comparing it against a weather app should know why before concluding something is wrong.
+
+Android bills traffic to the UID that owns the socket. Every connection on the device is
+re-originated by the core from a socket OmniShield owns, so the network cost of every app —
+radio wakeups included — lands on OmniShield's entry, and the CPU spent shuttling those bytes
+through a userspace TCP stack is real and also ours. The same accounting applies to any
+VPN-based blocker; what the number on that screen actually means is "the network cost of
+everything on this phone, plus the tunnel's own overhead". The overhead is the part this page
+measures. The rest is traffic that would have been spent anyway, attributed to whichever app
+asked for it only when no tunnel is in the way.
+
+A genuinely broken tunnel looks different: drain that continues while the device is idle and
+unused. If that is what shows up, suspect the failure paths above first — a dead upstream
+descriptor that stays in the poll set spins the loop at a full core, and that is invisible on
+an idle emulator, which has no upstream resets to die from.
 
 1. `MorphShape` in `DashboardScreen.kt` stays a `data class`. As a plain class, every
    recomposition defeats `Modifier.clip`'s outline cache.
