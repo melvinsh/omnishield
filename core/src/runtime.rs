@@ -46,6 +46,7 @@ use crate::jvm::JavaBridge;
 use crate::mitm::{self, MitmSession};
 use crate::net;
 use crate::packet::{self, PROTO_TCP, PROTO_UDP};
+use crate::relay::{kill_upstream, reap, FourTuple, TcpConn, UdpSession};
 use crate::tun::TunDevice;
 use crate::wake::Waker;
 
@@ -62,8 +63,6 @@ const IFACE_V6: Ipv6Addr = Ipv6Addr::new(0xfd00, 0, 0, 1, 0, 0, 0, 1);
 /// which cost 128 KiB of zeroed heap per connection and a 64 MiB ceiling at `MAX_CONNECTIONS`.
 const TCP_BUFFER: usize = 16 * 1024;
 const MAX_CONNECTIONS: usize = 512;
-const UDP_SESSION_TTL: Duration = Duration::from_secs(30);
-const HANDSHAKE_TTL: Duration = Duration::from_secs(10);
 
 /// How long the loop is willing to sleep when smoltcp reports nothing pending.
 ///
@@ -237,25 +236,6 @@ impl Runtime {
 
 // `uid`/`app` are read by the Phase 4 MITM opt-in check and the Phase 5 content filter.
 #[allow(dead_code)]
-struct TcpConn {
-    handle: SocketHandle,
-    fd: RawFd,
-    remote: SocketAddr,
-    connecting: bool,
-    /// app → upstream
-    to_remote: Vec<u8>,
-    /// upstream → app
-    from_remote: Vec<u8>,
-    uid: i32,
-    app: Arc<str>,
-    remote_eof: bool,
-    created: StdInstant,
-    /// Present only for connections opted in to TLS interception.
-    mitm: Option<Box<MitmSession>>,
-    /// Set once `finish_response` has released the (possibly rewritten) body to the app.
-    mitm_finished: bool,
-}
-
 /// A DNS query handed to the DoH worker, kept so the reply can be routed back to the app that
 /// asked and so the query can be retried over plaintext UDP if DoH fails.
 struct PendingDns {
@@ -270,24 +250,6 @@ struct PendingDns {
     /// Carried so a plaintext retry can create its session already attributed, rather than
     /// paying for a fresh JNI lookup on a path that has already done one.
     attribution: (i32, Arc<str>),
-}
-
-struct UdpSession {
-    fd: RawFd,
-    /// Where to send the reply — the app's own endpoint.
-    app_addr: IpAddr,
-    app_port: u16,
-    /// The address the app addressed, which must be the source of our reply.
-    orig_dst: IpAddr,
-    orig_port: u16,
-    created: StdInstant,
-    /// Whether this session carries DNS. Replies on a DNS session are eligible for the answer
-    /// cache; everything else is relayed untouched.
-    is_dns: bool,
-    /// Attribution for the socket that opened this session, resolved once. `-1` means it was
-    /// never resolved, in which case callers fall back to a fresh lookup.
-    uid: i32,
-    app: Arc<str>,
 }
 
 /// Renders `addr:port` for display, bracketing IPv6 per RFC 3986 — otherwise an address like
@@ -314,14 +276,6 @@ impl DnsUpstream {
         self.next_token = self.next_token.wrapping_add(1);
         self.next_token
     }
-}
-
-#[derive(Hash, PartialEq, Eq, Clone, Copy, Debug)]
-struct FourTuple {
-    src: IpAddr,
-    src_port: u16,
-    dst: IpAddr,
-    dst_port: u16,
 }
 
 // ---------------------------------------------------------------------------
@@ -394,6 +348,9 @@ fn run_loop(
         NO_WAKER_CEILING_MS
     };
     let mut last_sweep = StdInstant::now();
+    // Handles aborted before ever becoming connections, parked here until the sweep removes
+    // them from the SocketSet (after `iface.poll` has emitted their RST).
+    let mut dying: Vec<SocketHandle> = Vec::new();
 
     log::info!("tunnel loop running (mtu={mtu}, idle ceiling={idle_ceiling}ms)");
 
@@ -452,7 +409,17 @@ fn run_loop(
             Some(d) => (d.total_millis() as i64).clamp(0, idle_ceiling as i64) as i32,
             None => idle_ceiling,
         };
-        unsafe { libc::poll(fds.as_mut_ptr(), fds.len() as libc::nfds_t, timeout_ms) };
+        let rc = unsafe { libc::poll(fds.as_mut_ptr(), fds.len() as libc::nfds_t, timeout_ms) };
+        if rc < 0 {
+            let err = io::Error::last_os_error();
+            if err.raw_os_error() != Some(libc::EINTR) {
+                // EBADF here means the fd bookkeeping is wrong, and retrying immediately
+                // would spin. Back off enough to keep the device usable and the log legible.
+                log::warn!("poll() failed: {err}");
+                std::thread::sleep(Duration::from_millis(100));
+            }
+            continue;
+        }
 
         // --- 2. Absorb the wake, if that is what woke us --------------------
         if fds[1].revents & libc::POLLIN != 0 {
@@ -495,7 +462,14 @@ fn run_loop(
         iface.poll(smol_now(started), &mut device, &mut sockets);
 
         // --- 5. Promote completed handshakes into real connections ----------
-        promote_pending(&shared, &jvm, &mut sockets, &mut conns, &mut pending);
+        promote_pending(
+            &shared,
+            &jvm,
+            &mut sockets,
+            &mut conns,
+            &mut pending,
+            &mut dying,
+        );
 
         // --- 6. Shuttle bytes between smoltcp sockets and upstream sockets ---
         for i in 0..conn_keys.len() {
@@ -545,13 +519,15 @@ fn run_loop(
         // --- 10. Reap, on a clock rather than every pass ---------------------
         if last_sweep.elapsed() >= SWEEP_INTERVAL {
             last_sweep = StdInstant::now();
-            reap(&mut sockets, &mut conns, &mut pending, &mut udp);
+            reap(&mut sockets, &mut conns, &mut pending, &mut udp, &mut dying);
             expire_pending_dns(&mut dns_up);
         }
     }
 
     for (_, c) in conns.drain() {
-        unsafe { libc::close(c.fd) };
+        if c.fd >= 0 {
+            unsafe { libc::close(c.fd) };
+        }
     }
     for (_, s) in udp.drain() {
         unsafe { libc::close(s.fd) };
@@ -622,8 +598,12 @@ fn triage(
                 return;
             }
             // QUIC cannot be intercepted; dropping it forces browsers back to TLS 1.3 over
-            // TCP, which we can filter.
-            if e.dst_port == 443 && cfg.block_quic {
+            // TCP, which we can filter. That only serves layer 2, which is opt-in — so the
+            // drop applies only while interception is actually on for someone. DNS filtering
+            // works over QUIC, and blocking it device-wide made every QUIC-preferring app
+            // retransmit its Initials to timeout before falling back, on every connection.
+            if e.dst_port == 443 && cfg.block_quic && cfg.mitm_enabled && !cfg.mitm_uids.is_empty()
+            {
                 return;
             }
             // Plain DNS aimed at a hard-coded resolver would bypass the sentinel entirely.
@@ -995,7 +975,8 @@ fn ensure_udp_session(
     is_dns: bool,
     attribution: (i32, Arc<str>),
 ) -> Option<RawFd> {
-    if let Some(s) = udp.get(tuple) {
+    if let Some(s) = udp.get_mut(tuple) {
+        s.last_seen = StdInstant::now();
         return Some(s.fd);
     }
     let fd = net::new_socket(&upstream, libc::SOCK_DGRAM).ok()?;
@@ -1012,7 +993,7 @@ fn ensure_udp_session(
             app_port: e.src_port,
             orig_dst: e.dst,
             orig_port: e.dst_port,
-            created: StdInstant::now(),
+            last_seen: StdInstant::now(),
             is_dns,
             uid: attribution.0,
             app: attribution.1,
@@ -1053,7 +1034,7 @@ fn pump_udp(
     device: &mut TunDevice,
     shared: &Arc<Shared>,
 ) {
-    let session = match udp.get(key) {
+    let session = match udp.get_mut(key) {
         Some(s) => s,
         None => return,
     };
@@ -1070,6 +1051,7 @@ fn pump_udp(
         if n <= 0 {
             break;
         }
+        session.last_seen = StdInstant::now();
         let reply = &buf[..n as usize];
         // Cache before relaying, so the very next A/AAAA/HTTPS lookup for the same name is
         // answered locally instead of costing another round trip and another radio wakeup.
@@ -1102,6 +1084,7 @@ fn promote_pending(
     sockets: &mut SocketSet<'static>,
     conns: &mut HashMap<SocketHandle, TcpConn>,
     pending: &mut HashMap<FourTuple, (SocketHandle, StdInstant)>,
+    dying: &mut Vec<SocketHandle>,
 ) {
     let ready: Vec<(FourTuple, SocketHandle)> = pending
         .iter()
@@ -1141,6 +1124,9 @@ fn promote_pending(
                 "firewall",
             ));
             sockets.get_mut::<tcp::Socket>(handle).abort();
+            // Not in `conns`, no longer in `pending`: hand the handle to the sweep or it
+            // stays in the SocketSet forever.
+            dying.push(handle);
             continue;
         }
 
@@ -1179,7 +1165,6 @@ fn promote_pending(
                 conns.insert(
                     handle,
                     TcpConn {
-                        handle,
                         fd,
                         remote: SocketAddr::new(tuple.dst, tuple.dst_port),
                         connecting: true,
@@ -1188,7 +1173,6 @@ fn promote_pending(
                         uid,
                         app,
                         remote_eof: false,
-                        created: StdInstant::now(),
                         mitm,
                         mitm_finished: false,
                     },
@@ -1196,6 +1180,7 @@ fn promote_pending(
             }
             None => {
                 sockets.get_mut::<tcp::Socket>(handle).abort();
+                dying.push(handle);
             }
         }
     }
@@ -1239,15 +1224,30 @@ fn pump_connection(
         if err != 0 {
             log::debug!("upstream connect to {} failed: errno {err}", conn.remote);
             sockets.get_mut::<tcp::Socket>(handle).abort();
-            conn.remote_eof = true;
+            kill_upstream(conn);
             return;
         }
         conn.connecting = false;
     }
 
-    // Read whatever the origin sent, regardless of mode.
+    // A closed fd was already withdrawn from the poll set (negative fds are ignored), so a
+    // stale revents can only belong to a live one.
+    if conn.fd >= 0 && revents & libc::POLLNVAL != 0 {
+        // The fd is not open. Closing it would be closing someone else's; just forget it.
+        conn.fd = -1;
+        conn.remote_eof = true;
+        conn.to_remote.clear();
+    }
+
+    // Read whatever the origin sent, regardless of mode. POLLERR and POLLHUP are included
+    // because they are reported even when not requested, and the only way to resolve them is
+    // to read until EOF or a hard error: leaving them unread kept the fd permanently ready
+    // and turned the loop into a busy wait pinned at 100% of a core.
     let mut incoming = Vec::new();
-    if !conn.connecting && revents & libc::POLLIN != 0 {
+    if !conn.connecting
+        && conn.fd >= 0
+        && revents & (libc::POLLIN | libc::POLLERR | libc::POLLHUP) != 0
+    {
         let mut buf = [0u8; 32 * 1024];
         loop {
             let n =
@@ -1261,7 +1261,19 @@ fn pump_connection(
                 conn.remote_eof = true;
                 break;
             } else {
-                break; // EWOULDBLOCK
+                // EWOULDBLOCK is EAGAIN on Linux; naming both trips unreachable_patterns.
+                match io::Error::last_os_error().raw_os_error() {
+                    Some(libc::EAGAIN) | Some(libc::EINTR) => {}
+                    err => {
+                        // ECONNRESET, ETIMEDOUT, and friends. The old code filed every
+                        // negative return under EWOULDBLOCK, so the error was never
+                        // consumed, `remote_eof` was never set, and the dead fd spun the
+                        // poll loop until the tunnel restarted.
+                        log::debug!("upstream read from {} failed: {err:?}", conn.remote);
+                        kill_upstream(conn);
+                    }
+                }
+                break;
             }
         }
     }
@@ -1273,7 +1285,7 @@ fn pump_connection(
     }
 
     // Flush whatever either path queued toward the origin.
-    if !conn.connecting && !conn.to_remote.is_empty() {
+    if !conn.connecting && conn.fd >= 0 && !conn.to_remote.is_empty() {
         let n = unsafe {
             libc::write(
                 conn.fd,
@@ -1283,6 +1295,18 @@ fn pump_connection(
         };
         if n > 0 {
             conn.to_remote.drain(..n as usize);
+        } else if n < 0 {
+            // EWOULDBLOCK is EAGAIN on Linux; naming both trips unreachable_patterns.
+            match io::Error::last_os_error().raw_os_error() {
+                Some(libc::EAGAIN) | Some(libc::EINTR) => {}
+                err => {
+                    // EPIPE or a reset. An undrainable buffer kept POLLOUT requested
+                    // forever on a socket that also reported POLLERR — the same spin as
+                    // the read path, reached through the write side.
+                    log::debug!("upstream write to {} failed: {err:?}", conn.remote);
+                    kill_upstream(conn);
+                }
+            }
         }
     }
 
@@ -1413,54 +1437,5 @@ fn pump_mitm(
     let to_app = session.app_out();
     if !to_app.is_empty() {
         conn.from_remote.extend_from_slice(&to_app);
-    }
-}
-
-fn reap(
-    sockets: &mut SocketSet<'static>,
-    conns: &mut HashMap<SocketHandle, TcpConn>,
-    pending: &mut HashMap<FourTuple, (SocketHandle, StdInstant)>,
-    udp: &mut HashMap<FourTuple, UdpSession>,
-) {
-    let dead: Vec<SocketHandle> = conns
-        .iter()
-        .filter(|(h, c)| {
-            let s = sockets.get::<tcp::Socket>(**h);
-            // Never reap while bytes are still queued toward the app — an intercepted
-            // connection writes its whole rewritten response *after* the origin EOF.
-            c.from_remote.is_empty() && (!s.is_open() || (c.remote_eof && !s.is_active()))
-        })
-        .map(|(h, _)| *h)
-        .collect();
-    for h in dead {
-        if let Some(c) = conns.remove(&h) {
-            unsafe { libc::close(c.fd) };
-        }
-        sockets.remove(h);
-    }
-
-    // Handshakes that never completed would otherwise leak a socket each.
-    let stale: Vec<FourTuple> = pending
-        .iter()
-        .filter(|(_, (h, t))| {
-            t.elapsed() > HANDSHAKE_TTL && !sockets.get::<tcp::Socket>(*h).is_active()
-        })
-        .map(|(k, _)| *k)
-        .collect();
-    for k in stale {
-        if let Some((h, _)) = pending.remove(&k) {
-            sockets.remove(h);
-        }
-    }
-
-    let expired: Vec<FourTuple> = udp
-        .iter()
-        .filter(|(_, s)| s.created.elapsed() > UDP_SESSION_TTL)
-        .map(|(k, _)| *k)
-        .collect();
-    for k in expired {
-        if let Some(s) = udp.remove(&k) {
-            unsafe { libc::close(s.fd) };
-        }
     }
 }

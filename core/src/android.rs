@@ -25,9 +25,17 @@ pub extern "system" fn Java_io_omnishield_bridge_NativeBridge_nativeInit(
     _env: JNIEnv,
     _class: JClass,
 ) {
+    // Debug builds log everything; release stops at Info. The Debug tier logs per intercepted
+    // HTTP transaction and per failed UID lookup, and jni's own Debug spans log every thread
+    // attach — one pair per protect() call, which is once per dialled connection.
+    let max_level = if cfg!(debug_assertions) {
+        log::LevelFilter::Debug
+    } else {
+        log::LevelFilter::Info
+    };
     android_logger::init_once(
         android_logger::Config::default()
-            .with_max_level(log::LevelFilter::Debug)
+            .with_max_level(max_level)
             .with_tag("omnishield"),
     );
     log::info!("omnishield-core {} initialised", env!("CARGO_PKG_VERSION"));
