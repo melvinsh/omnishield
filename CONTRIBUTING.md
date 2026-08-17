@@ -7,8 +7,7 @@ project, so reviews are not instant.
 
 For anything beyond a small fix, open an issue first. The parts of this codebase that look
 arbitrary usually are not, and a short conversation saves a rewrite. `docs/` and `CLAUDE.md`
-record why a surprising number of things are the way they are, including several that were tried
-the obvious way first and reverted.
+record the reasoning behind the constraints that are not obvious from the code.
 
 ## Setting up
 
@@ -36,10 +35,10 @@ cd core && cargo test                  # 101 tests, no emulator
 cd core && cargo fmt --check && cargo clippy --all-targets -- -D warnings
 ```
 
-Lint fails the build, and it has earned that. It caught `BigInteger.TWO` being an API 33 field
-against a `minSdk` of 29, which would have killed the tunnel on Android 10 through 12. Every unit
-test passed, because they run on a desktop JVM where the field exists. If lint and the tests
-disagree about whether your change is safe, lint is probably right.
+Lint fails the build, and it earns that. The unit tests run on a desktop JVM, so anything that
+exists there but not on `minSdk` 29 sails through them: touching an API 33 field such as
+`BigInteger.TWO` passes every test and then throws `NoSuchFieldError` on Android 10 through 12.
+If lint and the tests disagree about whether your change is safe, lint is probably right.
 
 ## Things that will waste your afternoon
 

@@ -3,60 +3,36 @@
 Follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-The release workflow reads the section matching the tag and uses it as the release notes, so
-the headings here have to keep their shape.
+The release workflow reads the section matching the tag and uses it as the release notes, so the
+`## [x.y.z]` headings have to keep their shape.
 
 ## [Unreleased]
 
 ## [0.2.0] - 2026-08-17
 
-First public release.
+First release.
 
-### If you installed a development build
+DNS-level ad and tracker blocking for every app on the device, from a local `VpnService` tunnel
+with no root, no account and no server. Roughly 430,000 domains, from StevenBlack, AdGuard DNS and
+OISD plus a bundled starter list, refreshed daily over Wi-Fi.
 
-Uninstall it first. Everything before this was signed with a per-machine debug key, and Android
-refuses to upgrade an app whose signature has changed. Installing over it fails with a signature
-mismatch, which is a confusing error for what is really just a one-time reset. Your settings and
-request history do not survive the uninstall.
+- **Request log.** Every lookup and connection the tunnel saw, searchable and filterable, with
+  per-domain always-allow and always-block overrides that beat any downloaded rule.
+- **Per-app firewall.** Cut any installed app off from Wi-Fi, mobile data, or both. Rules apply to
+  a tunnel that is already running.
+- **Pause.** 5 minutes, 30 minutes or an hour, backed by an alarm so it expires even if the
+  process dies. Filtering stops; the tunnel stays up, so there is no reconnect and no second
+  consent prompt.
+- **DNS over HTTPS**, on by default via Cloudflare, so queries are not readable on the local
+  network. The resolver is editable, and a DoH failure falls back to plaintext and says so rather
+  than silently downgrading.
+- **Optional HTTPS interception** for in-page ad and cosmetic filtering, off by default and opt-in
+  per app. Since Android 7 this reaches Chrome-family browsers and little else, which the app says
+  plainly.
+- **Quick Settings tile**, start on boot, and a battery-optimisation exemption.
 
-From 0.2.0 onward, every published APK is signed with the same release key and upgrades in place.
-
-### Added
-
-- Per-ABI APKs. `arm64-v8a` for phones, `x86_64` for emulators and x86 Chromebooks, plus a
-  universal build for anyone who does not want to think about it. The Rust core is 5.5 MB per
-  ABI, so splitting saves every user a copy they cannot run.
-- Continuous integration: 101 Rust tests, 58 Kotlin unit tests, 36 instrumented tests, Android
-  lint, `cargo fmt` and `cargo clippy`, on every push and pull request.
-- `LICENSE` (MIT), `NOTICE.md`, `SECURITY.md`, `CONTRIBUTING.md`.
-- `android:dataExtractionRules`, so the generated CA private key stays out of cloud backups and
-  device-to-device transfers on Android 12 and later as well as on earlier versions.
-
-### Fixed
-
-- The tunnel no longer routes the local network. It used to take `0.0.0.0/0`, which broke every
-  inbound LAN connection: file transfers, media servers and `adb connect` to the phone all timed
-  out while OmniShield was running, and nothing in the app explained why.
-- The Quick Settings tile no longer crashes on Android 14. It called an overload of
-  `startActivityAndCollapse` that throws against a `targetSdk` of 34.
-- Domain overrides are no longer offered on log rows that name an address rather than a domain.
-  Allowing a `tcp` row used to store a rule that could never match while listing it in Settings
-  as though it were in force.
-- Six clippy findings in the core, including a `usize` cast to `usize` in DNS name decompression
-  and four address conversions that converted a type to itself.
-
-### Changed
-
-- Every screen has a title and a line saying what it is for. Every action is acknowledged, every
-  destructive one is confirmed, and firewall toggles can be undone.
-- The firewall states each app's rule in words, so a switch position is no longer the only thing
-  carrying the meaning. The switches block, which is the opposite of the usual reading.
-- Filter lists, the DNS resolver and un-pinning an app that rejected the certificate all have
-  user interfaces. They existed only as repository methods before.
-- Idle CPU with the screen off dropped from 13.2 to 0.4 seconds per hour, and tunnel start with a
-  warm filter cache from 3.8 seconds to 45 ms. See
-  [docs/efficiency.md](docs/efficiency.md).
-- The README is written for someone installing the app. The engineering record moved to `docs/`.
+Per-ABI APKs for `arm64-v8a` and `x86_64` plus a universal build. Android 10 and later.
+Sideloaded, because Play policy forbids apps that block ads in other apps.
 
 [Unreleased]: https://github.com/melvinsh/omnishield/compare/v0.2.0...HEAD
 [0.2.0]: https://github.com/melvinsh/omnishield/releases/tag/v0.2.0

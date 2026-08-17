@@ -91,41 +91,36 @@ happens".
 
 ## The tunnel does not claim the local network
 
-The tunnel used to route `0.0.0.0/0` and `::/0`, which broke every inbound connection from the
-local network. It surfaced when a LocalSend transfer to the phone timed out with OmniShield
-running and completed the moment it was switched off.
+`TunnelRoutes` computes the complement of the private ranges (RFC 1918, link-local, 100.64/10,
+multicast) and claims the rest: 47 IPv4 routes and 5 IPv6. A default route of `0.0.0.0/0` would be
+simpler and is what a VPN normally takes, and it breaks every inbound connection from the local
+network.
 
-The inbound SYN is not the problem; a VPN cannot intercept that, and it arrives on the physical
-interface as usual. The reply is the problem. It is routed by destination, matches the default
-route, and is handed to the TUN, where the core has no socket for it, because sockets are only
-created when a SYN is peeked. A SYN-ACK for an unseen 4-tuple is dropped, the peer waits, and the
-transfer times out. Anything that listens on the device, whether a file transfer app, a media
-server, `adb connect` or a desktop reaching the phone, did not work, and nothing in the app said
-so.
+The inbound SYN is not the problem, since a VPN cannot intercept that and it arrives on the
+physical interface as usual. The reply is. It is routed by destination, matches the default route,
+and is handed to the TUN, where the core has no socket for it, because sockets are created only
+when a SYN is peeked. A SYN-ACK for an unseen 4-tuple is dropped and the peer waits until it gives
+up. Everything that listens on the device fails that way: file transfer apps, media servers,
+`adb connect`, a desktop reaching the phone.
 
-`TunnelRoutes` now computes the complement of the private ranges (RFC 1918, link-local,
-100.64/10, multicast) and claims the rest: 47 IPv4 routes and 5 IPv6. Verified on device against
-`ip route show table all`, where no private prefix appears on `tun0` and DNS filtering is
-unchanged.
+Two consequences follow. LAN traffic is unfiltered, which is the intended trade and what every
+VPN-based blocker does; ad and tracker domains do not live on `192.168.0.0/16`. And `10.0.0.0/24`
+is claimed back explicitly, because the DNS sentinel every app is handed lives inside the excluded
+`10/8`, and without that route name resolution stops device-wide.
 
-That has two consequences. LAN traffic is no longer filtered, which is the intended trade and
-what every VPN-based blocker does. And `10.0.0.0/24` is claimed back
-explicitly, because the DNS sentinel every app is handed lives inside the excluded `10/8`;
-without that route, name resolution stops device-wide.
-
-`Builder.excludeRoute` would express all this directly, but it is API 33 and `minSdk` is 29,
-which is why the complement is computed instead. The same `minSdk` also rules out
-`BigInteger.TWO`, which would have thrown `NoSuchFieldError` on Android 10 through 12 the moment
-the tunnel started. The unit tests run on a desktop JVM where the field exists and passed
-regardless. Lint caught it.
+`Builder.excludeRoute` expresses this directly but is API 33 against a `minSdk` of 29, which is why
+the complement is computed instead. The same `minSdk` rules out `BigInteger.TWO`, an API 33 field
+that throws `NoSuchFieldError` on Android 10 through 12. Unit tests cannot catch that class of
+mistake here, because they run on a desktop JVM where the field exists; lint can, which is why lint
+gates the build.
 
 ## Kotlin data flow
 
 `OmniShieldVpnService` feeds `TunnelRepository` (process-level observable state) and
 `LogRepository` (durable Room history plus daily rollups). Screens read ViewModels only; they
-never touch `NativeBridge` or construct repositories inline. The log screen reads Room rather
-than a repository field, after an earlier `liveLog` that the service rewrote twice a second and
-nothing ever read.
+never touch `NativeBridge` or construct repositories inline. The log screen reads Room directly
+rather than a mirrored field on a repository, which would be rewritten several times a second and
+read only while that one screen is open.
 
 `LogRepository` batches on purpose. Inserts go in per drain inside one transaction, retention
 pruning runs on a five-minute timer, and daily counter deltas accumulate in memory and flush
@@ -158,10 +153,9 @@ Three things here are not free choices:
   decides whether a log row even has a domain to override: a `tcp` row is labelled `address:port`
   and an `http` row with a full URL, and a user rule keyed on either literal string is stored,
   listed in Settings, and matches nothing.
-- The firewall list never reorders. Grouping blocked apps at the top was tried and reverted: a
-  `LazyColumn` holds its scroll offset while items are inserted above it, so toggling a switch
-  slid the row the user had just touched out of the viewport. Finding blocked apps is a filter
-  chip instead.
+- The firewall list is always alphabetical and never reorders itself. A `LazyColumn` holds its
+  scroll offset while items are inserted above it, so hoisting blocked apps to the top slides the
+  row the user just touched out of the viewport. Finding blocked apps is a filter chip instead.
 - New filter lists are not pushed into a running core. `FilterRefreshWorker` explains why, so the
   manual "Refresh now" in Settings says the lists load on the next connect rather than implying
   an effect it does not have.
@@ -184,14 +178,3 @@ Three things here are not free choices:
 - **Google Play is off the table permanently.** Play policy forbids apps that block ads in other
   apps, so distribution is a sideloaded APK, which is also why `QUERY_ALL_PACKAGES` is
   unproblematic here.
-
-## Where the implementation left the original plan
-
-- `getConnectionOwnerUid` lives on `ConnectivityManager`, not on `VpnService`.
-- The JNI package is `io.omnishield.bridge`, not `native`, which is a Java keyword.
-- Persistence is Room plus DataStore, not the `SharedPreferences` JSON blob the plan settled on.
-  Room owns `log_entries`, `daily_stats`, `app_rules` and `user_rules`; DataStore holds settings.
-- DNS matching uses a reversed-label suffix walk, not a trie. A hostname has about six labels, so
-  a lookup is a handful of probes.
-- EasyList is ABP browser syntax and cannot be used for DNS blocking. DNS uses hosts-format and
-  AdGuard-DNS-format lists, and EasyList is confined to Layer 3.

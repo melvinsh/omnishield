@@ -134,9 +134,8 @@ Security problems go through [private reporting](SECURITY.md) rather than the is
 |---|---|
 | [Architecture](docs/architecture.md) | The Kotlin/Rust split, the packet path, the three filtering layers, routing |
 | [Development](docs/development.md) | Toolchain setup, emulators, tests, offline probes, version constraints |
-| [Verification](docs/verification.md) | What was measured on device, the benchmark result, bugs testing found |
-| [Efficiency](docs/efficiency.md) | Idle CPU and memory: what changed, what did not, and why |
-| [Interface](docs/interface.md) | Material 3 Expressive, and the pass that made every screen explain itself |
+| [Performance](docs/performance.md) | What it costs to run, how it stays cheap, and what it blocks |
+| [Interface](docs/interface.md) | How the screens are built, and the Material 3 Expressive design system |
 
 ## Licence
 

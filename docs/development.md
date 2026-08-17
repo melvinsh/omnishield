@@ -70,9 +70,10 @@ cd core && cargo test filter::tests::www_rule_does_not_widen_to_apex
   -Pandroid.testInstrumentationRunnerArguments.class=io.omnishield.data.db.DatabaseTest
 ```
 
-The desktop JVM is not the device. `TunnelRoutesTest` passed against `BigInteger.TWO`, an API 33
-field on a `minSdk` of 29, because the field exists on the host. Lint is what catches that class
-of bug, so lint gates the build.
+The desktop JVM is not the device, and the unit tests run on it. An API-level mistake such as
+touching `BigInteger.TWO`, which is API 33 against a `minSdk` of 29, passes every test here and
+throws `NoSuchFieldError` on Android 10 through 12. Lint is what catches that class of bug, so
+lint gates the build.
 
 ## Emulators
 
@@ -149,8 +150,8 @@ CPU time is the battery proxy, since battery itself is not measurable on QEMU. C
 `dumpsys meminfo io.omnishield` at startup and again 60 s later. The startup peak and the steady
 state are different numbers, and the peak is the one that caching the filters addresses.
 
-[Efficiency](efficiency.md) has the measured before and after figures, and the things that look
-like obvious waste but are not.
+[Performance](performance.md) has the current figures and the deliberate choices that look like
+waste.
 
 ## Continuous integration
 

@@ -5,15 +5,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 OmniShield is a non-root Android ad/tracker blocker: a Kotlin/Compose app over a Rust core that
 owns the entire packet path behind `VpnService`.
 
-`README.md` is written for someone installing the app, not for working on it. The engineering
-record lives in `docs/`:
+`README.md` is written for someone installing the app, not for working on it. The technical
+documentation lives in `docs/`:
 
 | File | What to read it for |
 |---|---|
 | `docs/architecture.md` | The packet path, the filtering layers, routing, and the platform limitations |
 | `docs/development.md` | Toolchain, emulators, offline probes, and the version-constraint table |
-| `docs/verification.md` | What was measured on device. Read before claiming a behaviour works |
-| `docs/efficiency.md` | Before/after cost numbers, and the six things that look like waste but are not. Check there before "fixing" one of them |
+| `docs/performance.md` | Measured cost, the mechanisms behind it, and the deliberate choices that look like waste. Check there before "fixing" one of them |
 | `docs/interface.md` | Material 3 Expressive, and why each screen is shaped the way it is |
 
 Some of what follows is repeated in those files. When they disagree, the code wins, and fix both.
@@ -51,12 +50,10 @@ checked-in fixtures and should stay that way.
 ./gradlew installDebug
 ```
 
-Measuring cost (the scripts behind the `docs/efficiency.md` numbers lived in a session
-scratchpad; recreate them if needed). CPU time is the battery proxy, since battery itself is not
-measurable on QEMU. Compare `/proc/<pid>/stat` utime+stime deltas over a fixed window, with the
-screen both on and off, plus `dumpsys meminfo io.omnishield` at startup *and* 60 s later; the
-startup peak and the steady state are different numbers, and the peak is the one caching
-addresses.
+Measuring cost. CPU time is the battery proxy, since battery itself is not measurable on QEMU.
+Compare `/proc/<pid>/stat` utime+stime deltas over a fixed window, with the screen both on and
+off, plus `dumpsys meminfo io.omnishield` at startup *and* 60 s later; the startup peak and the
+steady state are different numbers, and the peak is the one the filter cache addresses.
 
 Tests, all three of which must pass:
 
@@ -183,8 +180,8 @@ Two things not to break when touching it:
 - **`10.0.0.0/24` is re-added explicitly.** It sits inside the excluded `10/8` and carries the
   DNS sentinel every app is handed. Drop it and name resolution stops device-wide.
 - **`Builder.excludeRoute` is API 33 and `minSdk` is 29**, which is why the complement is
-  computed. For the same reason `BigInteger.TWO` is unusable here. It is API 33, the unit
-  tests run on a desktop JVM where it exists, and only lint catches it.
+  computed. For the same reason `BigInteger.TWO` is unusable here: it is API 33, the unit tests
+  run on a desktop JVM where it exists, and only lint catches it.
 
 ### Filtering layers
 
@@ -219,8 +216,8 @@ DNS list formats and ABP browser syntax are **not interchangeable**. `FilterRepo
 `OmniShieldVpnService` → `TunnelRepository` (process-level observable state) and
 `LogRepository` (durable Room history + daily rollups). Screens read ViewModels only; they never
 touch `NativeBridge` or construct repositories inline. The log screen reads Room, not a
-repository field. `TunnelRepository` used to also hold a `liveLog` that the service rewrote
-twice a second and nothing ever read.
+mirrored field on a repository: such a field would be rewritten several times a second and read
+only while that one screen is open.
 
 `LogRepository` batches on purpose: inserts go in per drain inside one transaction, retention
 pruning runs on a five-minute timer, and daily counter deltas accumulate in memory and flush
@@ -252,10 +249,9 @@ Three things in here are not free choices:
   `overrideTarget` decides whether a log row even has a domain to override: a `tcp` row is
   labelled `address:port` and an `http` row with a full URL, and a user rule keyed on either
   literal string is stored, listed in Settings, and matches nothing.
-- **The firewall list never reorders.** Grouping blocked apps at the top was tried and reverted:
-  a `LazyColumn` holds its scroll offset while items are inserted above it, so toggling a switch
-  slid the row the user had just touched out of the viewport. Finding blocked apps is a filter
-  chip instead.
+- **The firewall list is alphabetical and never reorders itself.** A `LazyColumn` holds its
+  scroll offset while items are inserted above it, so hoisting blocked apps to the top slides the
+  row the user just touched out of the viewport. Finding blocked apps is a filter chip instead.
 - **New filter lists are not pushed into a running core.** `FilterRefreshWorker` explains why;
   the manual "Refresh now" in Settings therefore says the lists load on the next connect rather
   than implying an effect it does not have.
