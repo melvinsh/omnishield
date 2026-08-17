@@ -232,13 +232,21 @@ class OmniShieldVpnService : VpnService() {
             .setMtu(current.mtu)
             .addAddress(TUN_ADDR_V4, 32)
             .addDnsServer(DNS_SENTINEL)
-            .addRoute("0.0.0.0", 0)
+
+        // Everything except the local network — see TunnelRoutes for why. Taking 0.0.0.0/0
+        // broke every inbound LAN connection, because the reply to a connection the tunnel
+        // never saw opened is swallowed by a core that has no socket for it.
+        for (route in TunnelRoutes.ipv4()) {
+            builder.addRoute(route.address, route.prefix)
+        }
 
         // IPv6 is routed as well as addressed. Adding the route without an address would
         // leave IPv6 traffic escaping the tunnel unfiltered — a silent DNS leak.
         runCatching {
             builder.addAddress(TUN_ADDR_V6, 128)
-            builder.addRoute("::", 0)
+            for (route in TunnelRoutes.ipv6()) {
+                builder.addRoute(route.address, route.prefix)
+            }
         }.onFailure { Log.w(TAG, "IPv6 unavailable on this device: ${it.message}") }
 
         // Belt and braces against the routing loop: our own traffic is excluded here, and

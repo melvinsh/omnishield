@@ -152,6 +152,23 @@ accept arbitrary destinations. Two mechanisms combine:
 `packet::parse` returning `None` means **drop**, never "forward unfiltered" — passing a packet we
 failed to parse would be a filtering bypass.
 
+### The tunnel does not claim the LAN
+
+`TunnelRoutes` computes the complement of the private ranges rather than routing `0.0.0.0/0`,
+and this is load-bearing. With a default route, an **inbound** LAN connection is dead on
+arrival: the SYN reaches the device on the physical interface, but the reply is routed by
+destination into the TUN, and the core only creates a socket on a peeked *SYN* — a SYN-ACK for
+an unknown 4-tuple is dropped. Anything that listens (file transfer, media server, `adb
+connect`) silently failed while the tunnel was up.
+
+Two things not to break when touching it:
+
+- **`10.0.0.0/24` is re-added explicitly.** It sits inside the excluded `10/8` and carries the
+  DNS sentinel every app is handed. Drop it and name resolution stops device-wide.
+- **`Builder.excludeRoute` is API 33 and `minSdk` is 29**, which is why the complement is
+  computed. For the same reason `BigInteger.TWO` is unusable here — it is API 33, the unit
+  tests run on a desktop JVM where it exists, and only lint catches it.
+
 ### Filtering layers
 
 | Layer | Module | Sees |

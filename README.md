@@ -515,6 +515,36 @@ permanent). The log's kind filter was the fourth — `setKind` had no caller.
 
 ---
 
+## The tunnel and the local network
+
+The tunnel used to route `0.0.0.0/0` and `::/0`, which broke **every inbound connection from
+the local network** — found when a LocalSend transfer to the phone timed out with OmniShield
+running and succeeded the moment it was switched off.
+
+The inbound SYN is not the problem; a VPN cannot intercept that, and it arrives on the physical
+interface as usual. The *reply* is the problem: it is routed by destination, matches the default
+route, and is handed to the TUN, where the core has no socket for it — sockets are created only
+when a SYN is peeked, so a SYN-ACK for an unseen 4-tuple is dropped. The peer waits and gives
+up. Anything that listens on the device (file transfer, a media server, `adb connect`, a desktop
+reaching the phone) simply did not work, and nothing in the app said so.
+
+`TunnelRoutes` now computes the complement of the private ranges — RFC 1918, link-local,
+100.64/10 and multicast — and claims the rest, 47 IPv4 routes and 5 IPv6. Verified on device
+against `ip route show table all`: no private prefix appears on `tun0`, and DNS filtering is
+unchanged (`doubleclick.net` still sinkholed, `github.com` still resolves).
+
+Two consequences, stated rather than buried: **LAN traffic is no longer filtered**, which is the
+intended trade and what every VPN-based blocker does; and **`10.0.0.0/24` is claimed back
+explicitly**, because the DNS sentinel lives inside the excluded `10/8` and losing its route
+would stop name resolution device-wide.
+
+Lint caught the sharpest bug in this change and the tests did not: `BigInteger.TWO` is API 33
+against a `minSdk` of 29, so the tunnel would have thrown `NoSuchFieldError` on Android 10–12
+at the moment it started. The unit tests run on a desktop JVM, where the field exists, and
+passed.
+
+---
+
 ## Known limitations
 
 - **HTTPS filtering only reaches Chrome-family browsers.** Since Android 7, apps ignore
