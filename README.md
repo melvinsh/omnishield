@@ -43,6 +43,12 @@ server on the other end of it.
 
 ## Using it
 
+<p align="center">
+  <img src="docs/images/shield.png" alt="The Shield tab, showing how many requests have been blocked and a Disconnect button" width="30%">
+  <img src="docs/images/log.png" alt="The Log tab, listing DNS lookups with allowed and blocked markers" width="30%">
+  <img src="docs/images/firewall.png" alt="The Firewall tab, listing installed apps with Wi-Fi and Mobile switches" width="30%">
+</p>
+
 Five tabs along the bottom:
 
 | Tab | What it is for |

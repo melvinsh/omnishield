@@ -36,10 +36,10 @@ cd core && cargo test                  # 101 tests, no emulator
 cd core && cargo fmt --check && cargo clippy --all-targets -- -D warnings
 ```
 
-Lint fails the build, and it earns that. It caught `BigInteger.TWO` being an API 33 field against a
-`minSdk` of 29, which would have killed the tunnel on Android 10 through 12. Every unit test
-passed, because they run on a desktop JVM where the field exists. If lint and the tests disagree
-about whether your change is safe, lint is probably right.
+Lint fails the build, and it has earned that. It caught `BigInteger.TWO` being an API 33 field
+against a `minSdk` of 29, which would have killed the tunnel on Android 10 through 12. Every unit
+test passed, because they run on a desktop JVM where the field exists. If lint and the tests
+disagree about whether your change is safe, lint is probably right.
 
 ## Things that will waste your afternoon
 
@@ -61,12 +61,12 @@ Two smaller traps:
 ## Filter list problems
 
 If a site is broken, that is usually a rule problem rather than a code problem, and the app can
-fix it without a release: open the Log, find the domain, and tap **Always allow**. Please still
-report it. A rule that breaks a mainstream site is something to chase upstream. Use the "site or app
-is broken" issue template.
+fix it without a release: open the Log, find the domain, and tap **Always allow**. Please open a
+"site or app is broken" issue anyway. A rule that takes out a mainstream site affects everyone
+running that list, not just you.
 
-The blocklists themselves are third-party and downloaded at runtime; a wrong entry in one is best
-reported upstream to whoever publishes it. See [NOTICE.md](NOTICE.md) for who that is.
+The blocklists themselves are third-party and downloaded at runtime, so a wrong entry belongs
+with whoever publishes the list. [NOTICE.md](NOTICE.md) says who that is for each one.
 
 ## Pull requests
 
