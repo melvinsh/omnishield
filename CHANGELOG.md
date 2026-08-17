@@ -8,7 +8,19 @@ The release workflow reads the section matching the tag and uses it as the relea
 
 ## [Unreleased]
 
-## [0.2.2] - 2026-08-17
+## [0.3.0] - 2026-08-17
+
+### Added
+
+- **Tablet and foldable layout.** On a wide screen the navigation moves to a rail down the side
+  instead of a bar along the bottom, and the screens reflow into the space. Phones are unchanged.
+
+### Changed
+
+- A pass over the interface for Material 3 Expressive: rounder, softer container shapes; a wavy
+  progress indicator while lists refresh; connected pause-duration buttons; a light press response
+  on tappable rows; and animated transitions between tabs. Nothing moved — the same five tabs and
+  controls, dressed in the newer design language.
 
 ### Fixed
 
@@ -74,7 +86,8 @@ OISD plus a bundled starter list, refreshed daily over Wi-Fi.
 Per-ABI APKs for `arm64-v8a` and `x86_64` plus a universal build. Android 10 and later.
 Sideloaded, because Play policy forbids apps that block ads in other apps.
 
-[Unreleased]: https://github.com/melvinsh/omnishield/compare/v0.2.2...HEAD
+[Unreleased]: https://github.com/melvinsh/omnishield/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/melvinsh/omnishield/compare/v0.2.2...v0.3.0
 [0.2.2]: https://github.com/melvinsh/omnishield/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/melvinsh/omnishield/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/melvinsh/omnishield/releases/tag/v0.2.0
