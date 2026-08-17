@@ -66,6 +66,7 @@ fun SettingsScreen(modifier: Modifier = Modifier, viewModel: SettingsViewModel =
     val overrides by viewModel.allowlist.collectAsStateWithLifecycle()
     val lists by viewModel.lists.collectAsStateWithLifecycle()
     val refresh by viewModel.refreshState.collectAsStateWithLifecycle()
+    val progress by viewModel.progress.collectAsStateWithLifecycle()
     val filterRules by viewModel.filterRules.collectAsStateWithLifecycle()
     val status by TunnelRepository.status.collectAsStateWithLifecycle()
 
@@ -100,6 +101,11 @@ fun SettingsScreen(modifier: Modifier = Modifier, viewModel: SettingsViewModel =
                 },
                 r.count,
                 r.count,
+            )
+
+            is RefreshState.Partial -> stringResource(
+                R.string.settings_lists_partial,
+                r.failed.joinToString(", "),
             )
 
             RefreshState.Failed -> stringResource(R.string.settings_lists_failed)
@@ -156,6 +162,7 @@ fun SettingsScreen(modifier: Modifier = Modifier, viewModel: SettingsViewModel =
                 lists = lists,
                 ruleCount = filterRules,
                 refreshing = refresh == RefreshState.Running,
+                progress = progress,
                 onRefresh = viewModel::refreshLists,
             )
 
@@ -276,6 +283,7 @@ private fun FilterListSection(
     lists: List<FilterRepository.ListStatus>,
     ruleCount: Int,
     refreshing: Boolean,
+    progress: Map<String, ListProgress>,
     onRefresh: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -287,7 +295,11 @@ private fun FilterListSection(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
-                text = stringResource(R.string.settings_lists_sub, formatCount(ruleCount.toLong())),
+                text = if (refreshing) {
+                    stringResource(R.string.settings_lists_refreshing)
+                } else {
+                    stringResource(R.string.settings_lists_sub, formatCount(ruleCount.toLong()))
+                },
                 style = MaterialTheme.typography.bodyMedium,
                 modifier = Modifier.weight(1f),
             )
@@ -301,25 +313,42 @@ private fun FilterListSection(
         }
         lists.forEach { list ->
             HorizontalDivider()
-            Column(
+            val listState = progress[list.name]
+            Row(
                 Modifier
                     .fillMaxWidth()
-                    .padding(start = 16.dp, end = 16.dp, top = 10.dp, bottom = 10.dp)
+                    .padding(start = 16.dp, end = 16.dp, top = 10.dp, bottom = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text(list.name, style = MaterialTheme.typography.bodyMedium)
-                Text(
-                    text = if (list.downloaded) {
-                        stringResource(
-                            R.string.settings_lists_updated,
-                            Formatter.formatShortFileSize(context, list.bytes),
-                            relativeTime(list.updatedAt),
-                        )
-                    } else {
-                        stringResource(R.string.settings_lists_never)
-                    },
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                Column(Modifier.weight(1f)) {
+                    Text(list.name, style = MaterialTheme.typography.bodyMedium)
+                    Text(
+                        text = when (listState) {
+                            ListProgress.Downloading -> stringResource(R.string.settings_lists_downloading)
+                            ListProgress.Failed -> stringResource(R.string.settings_lists_unreachable)
+                            else -> if (list.downloaded) {
+                                stringResource(
+                                    R.string.settings_lists_updated,
+                                    Formatter.formatShortFileSize(context, list.bytes),
+                                    relativeTime(list.updatedAt),
+                                )
+                            } else {
+                                stringResource(R.string.settings_lists_never)
+                            }
+                        },
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (listState == ListProgress.Failed) {
+                            MaterialTheme.colorScheme.error
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                    )
+                }
+                // A per-row spinner while this specific list is still in flight, so the ones
+                // that have already landed read as done even while a slow host is still trying.
+                if (listState == ListProgress.Downloading) {
+                    CircularProgressIndicator(Modifier.size(16.dp))
+                }
             }
         }
     }

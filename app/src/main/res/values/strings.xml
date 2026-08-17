@@ -137,8 +137,11 @@
     <string name="https_ca_ready">A certificate authority unique to this device has been generated. The private key never leaves the device.</string>
     <string name="https_ca_pending">Generated when the tunnel first starts. Connect once, then return here.</string>
     <string name="https_ca_trusted">Installed — this device trusts the certificate.</string>
-    <string name="https_ca_untrusted">Generated but not installed yet. Interception cannot work until it is.</string>
-    <string name="https_install">Install certificate</string>
+    <string name="https_ca_untrusted">Generated but not trusted yet. Save it, then import it in Settings — interception cannot work until you do.</string>
+    <string name="https_ca_steps">Android no longer lets an app install a certificate for you. Save it, then open Settings, search for \"CA certificate\", and choose Install a certificate → CA certificate → the file you saved. On Samsung it is under Biometrics and security → Other security settings → Install from device storage. Android will warn that the network may be monitored, which is expected.</string>
+    <string name="https_install">Save certificate…</string>
+    <string name="https_saved">Saved omnishield-ca.crt. Now import it in Settings to finish.</string>
+    <string name="https_save_failed">Could not save the certificate. Try again.</string>
     <string name="https_settings">Security settings</string>
     <string name="https_intercept">Intercept HTTPS</string>
     <string name="https_intercept_sub">Off by default. Decrypts only the apps you pick below.</string>
@@ -175,6 +178,9 @@
     <string name="settings_lists_never">Not downloaded — the bundled list is in use</string>
     <string name="settings_lists_updated">%1$s · updated %2$s</string>
     <string name="settings_lists_just_now">just now</string>
+    <string name="settings_lists_refreshing">Refreshing lists…</string>
+    <string name="settings_lists_downloading">Downloading…</string>
+    <string name="settings_lists_unreachable">Couldn\'t reach the server — using the last copy</string>
     <plurals name="settings_lists_result">
         <item quantity="one">%1$d list updated</item>
         <item quantity="other">%1$d lists updated</item>
@@ -185,6 +191,7 @@
         <item quantity="one">%1$d list updated — it loads on the next connect</item>
         <item quantity="other">%1$d lists updated — they load on the next connect</item>
     </plurals>
+    <string name="settings_lists_partial">Couldn\'t reach %1$s. The last copy is still in use; other lists updated.</string>
     <string name="settings_lists_failed">Could not download the lists. Check the connection and try again.</string>
     <string name="settings_battery">Ignore battery optimisation</string>
     <string name="settings_battery_sub">Stops the system suspending the tunnel in the background</string>

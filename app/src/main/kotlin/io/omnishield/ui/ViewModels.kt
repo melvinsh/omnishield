@@ -29,6 +29,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -266,8 +267,13 @@ sealed interface RefreshState {
     data object Idle : RefreshState
     data object Running : RefreshState
     data class Done(val count: Int) : RefreshState
+    /** Some lists updated, others could not be reached — the failed names are named to the user. */
+    data class Partial(val count: Int, val failed: List<String>) : RefreshState
     data object Failed : RefreshState
 }
+
+/** Per-list state during a refresh, so each row can show what is happening to it right now. */
+enum class ListProgress { Downloading, Done, Failed }
 
 class SettingsViewModel(app: Application) : BaseViewModel(app) {
 
@@ -281,6 +287,10 @@ class SettingsViewModel(app: Application) : BaseViewModel(app) {
 
     private val _refresh = MutableStateFlow<RefreshState>(RefreshState.Idle)
     val refreshState: StateFlow<RefreshState> = _refresh
+
+    /** Live per-list state while a refresh runs, keyed by list file name. Empty when idle. */
+    private val _progress = MutableStateFlow<Map<String, ListProgress>>(emptyMap())
+    val progress: StateFlow<Map<String, ListProgress>> = _progress
 
     val filterRules: StateFlow<Int> = TunnelRepository.filterRules
 
@@ -296,8 +306,9 @@ class SettingsViewModel(app: Application) : BaseViewModel(app) {
      * Downloads every list now.
      *
      * `FilterRefreshWorker` still owns the scheduled refresh; this is the manual path, which
-     * did not exist. A partial result is reported as the number that succeeded rather than as
-     * a failure — one unreachable source should not read as "nothing works".
+     * did not exist. A source that could not be reached is named to the user rather than hidden
+     * behind the count of the ones that succeeded — otherwise a list that quietly failed to
+     * update looked exactly like a full refresh.
      *
      * Deliberately does **not** push the new lists into a running core. `FilterRefreshWorker`
      * documents why: swapping ~430k rules out from under the packet thread mid-session is not
@@ -307,15 +318,32 @@ class SettingsViewModel(app: Application) : BaseViewModel(app) {
     fun refreshLists() = viewModelScope.launch {
         if (_refresh.value == RefreshState.Running) return@launch
         _refresh.value = RefreshState.Running
-        val fetched = runCatching {
-            filterRepo.refresh().size + filterRepo.refreshContentRules().size
-        }.getOrDefault(0)
+        // Every list starts as downloading so the rows show progress immediately, then each
+        // flips to Done or Failed the moment its own fetch lands — the user watches the set
+        // resolve rather than staring at one opaque spinner.
+        val names = (FilterRepository.DNS_SOURCES + FilterRepository.CONTENT_SOURCES).map { it.name }
+        _progress.value = names.associateWith { ListProgress.Downloading }
+
+        val result = runCatching {
+            filterRepo.refreshEverything { name, ok ->
+                _progress.update { it + (name to if (ok) ListProgress.Done else ListProgress.Failed) }
+            }
+        }.getOrDefault(FilterRepository.RefreshResult(emptyList(), names))
+
         reloadLists()
-        _refresh.value = if (fetched > 0) RefreshState.Done(fetched) else RefreshState.Failed
+        val fetched = result.bodies.size
+        _refresh.value = when {
+            fetched == 0 -> RefreshState.Failed
+            result.failed.isEmpty() -> RefreshState.Done(fetched)
+            else -> RefreshState.Partial(fetched, result.failed)
+        }
     }
 
     fun refreshHandled() {
         _refresh.value = RefreshState.Idle
+        // The per-list states are kept, not cleared: a row that could not be reached keeps
+        // saying so until the next refresh replaces the whole map, rather than snapping back to
+        // its plain status the moment the snackbar is dismissed.
     }
 
     /**

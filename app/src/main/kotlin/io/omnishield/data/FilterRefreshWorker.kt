@@ -33,9 +33,12 @@ class FilterRefreshWorker(
         return runCatching {
             val dns = repo.refresh()
             val content = repo.refreshContentRules()
-            Log.i(TAG, "refreshed ${dns.size} DNS and ${content.size} content lists")
-            // A partial refresh is still progress; only a total failure is worth retrying.
-            if (dns.isEmpty() && content.isEmpty()) Result.retry() else Result.success()
+            Log.i(TAG, "refreshed ${dns.bodies.size} DNS and ${content.bodies.size} content lists")
+            val failed = dns.failed + content.failed
+            if (failed.isNotEmpty()) Log.w(TAG, "could not reach: ${failed.joinToString()}")
+            // A partial refresh is still progress; retry only when nothing came back at all, so
+            // one unreachable source does not drag the whole job into its backoff schedule.
+            if (dns.bodies.isEmpty() && content.bodies.isEmpty()) Result.retry() else Result.success()
         }.getOrElse {
             Log.w(TAG, "filter refresh failed: ${it.message}")
             Result.retry()

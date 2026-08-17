@@ -484,7 +484,7 @@ class OmniShieldVpnService : VpnService() {
         val handle = nativeHandle
         if (handle == 0L) return
         var lists = filters.cachedContentRules()
-        if (lists.isEmpty()) lists = filters.refreshContentRules()
+        if (lists.isEmpty()) lists = filters.refreshContentRules().bodies
         // Streamed one at a time rather than joined: the previous version built a single string
         // the size of every ABP list combined, while still holding the originals.
         for (list in lists) {

@@ -3,10 +3,13 @@ package io.omnishield.data
 import android.content.Context
 import android.util.Log
 import java.io.File
+import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 
 /**
  * Supplies blocklists to the native filter.
@@ -43,25 +46,70 @@ class FilterRepository(context: Context) {
     }
 
     /**
-     * Downloads [DNS_SOURCES] and caches them. Returns the bodies that were fetched
-     * successfully; a source that fails is skipped rather than failing the whole refresh,
-     * since partial coverage beats none.
+     * The outcome of a refresh: the bodies fetched, and the names of the sources that could not
+     * be reached. A source that fails is skipped rather than failing the whole refresh — partial
+     * coverage beats none — but the failed names are carried out so the caller can tell the user
+     * exactly which list did not update instead of reporting a silent partial success.
      */
-    suspend fun refresh(): List<String> = withContext(Dispatchers.IO) {
-        DNS_SOURCES.mapNotNull { source ->
-            runCatching { download(source) }
-                .onFailure { Log.w(TAG, "failed to fetch ${source.name}: ${it.message}") }
-                .getOrNull()
-        }
-    }
+    data class RefreshResult(val bodies: List<String>, val failed: List<String>)
+
+    /**
+     * How hard to try, per source.
+     *
+     * The timeouts bound *reachability*, not download speed: [readTimeoutMs] is the socket read
+     * timeout, i.e. the longest the connection may go silent between bytes, so a slow but alive
+     * download keeps resetting it and only an unresponsive host trips it. That is why it can be
+     * short without penalising a big list on a slow link. [INTERACTIVE] fails fast so the manual
+     * refresh does not leave the user watching a spinner; [BACKGROUND] retries because the
+     * scheduled worker runs with nobody waiting.
+     */
+    data class FetchProfile(val attempts: Int, val connectTimeoutMs: Int, val readTimeoutMs: Int)
+
+    /** Downloads [DNS_SOURCES] and caches them. */
+    suspend fun refresh(
+        profile: FetchProfile = BACKGROUND,
+        onEach: (name: String, ok: Boolean) -> Unit = { _, _ -> },
+    ): RefreshResult = fetchAll(DNS_SOURCES, profile, onEach)
 
     /** Downloads the ABP-syntax lists used by the Layer 3 content filter. */
-    suspend fun refreshContentRules(): List<String> = withContext(Dispatchers.IO) {
-        CONTENT_SOURCES.mapNotNull { source ->
-            runCatching { download(source) }
-                .onFailure { Log.w(TAG, "failed to fetch ${source.name}: ${it.message}") }
-                .getOrNull()
-        }
+    suspend fun refreshContentRules(
+        profile: FetchProfile = BACKGROUND,
+        onEach: (name: String, ok: Boolean) -> Unit = { _, _ -> },
+    ): RefreshResult = fetchAll(CONTENT_SOURCES, profile, onEach)
+
+    /**
+     * Every list at once, for the manual refresh. Fetches DNS and content sources together so
+     * the UI can show them all downloading in parallel and report each as it lands.
+     */
+    suspend fun refreshEverything(
+        onEach: (name: String, ok: Boolean) -> Unit,
+    ): RefreshResult = fetchAll(DNS_SOURCES + CONTENT_SOURCES, INTERACTIVE, onEach)
+
+    /**
+     * Fetches every source concurrently. Sequential fetches meant one slow or unreachable
+     * source — and the largest DNS list is served by a host that rate-limits — held up all the
+     * others behind its full retry budget, so the refresh spinner could run for minutes. Running
+     * them together bounds the wait to the single slowest source, and [onEach] fires the moment
+     * each one lands so the UI can report progress rather than waiting for the whole set.
+     */
+    private suspend fun fetchAll(
+        sources: List<Source>,
+        profile: FetchProfile,
+        onEach: (name: String, ok: Boolean) -> Unit,
+    ): RefreshResult = coroutineScope {
+        val results = sources.map { source ->
+            async(Dispatchers.IO) {
+                val body = runCatching { download(source, profile) }
+                    .onFailure { Log.w(TAG, "failed to fetch ${source.name}: ${it.message}") }
+                    .getOrNull()
+                onEach(source.name, body != null)
+                source.name to body
+            }
+        }.awaitAll()
+        RefreshResult(
+            bodies = results.mapNotNull { it.second },
+            failed = results.filter { it.second == null }.map { it.first },
+        )
     }
 
     fun cachedContentRules(): List<String> = CONTENT_SOURCES.mapNotNull { source ->
@@ -130,12 +178,38 @@ class FilterRepository(context: Context) {
         }.getOrDefault(0L)
     }
 
-    private fun download(source: Source): String {
+    /**
+     * Fetches a source, retrying a few times before giving up.
+     *
+     * One transient failure used to lose a whole list until the next daily cycle — and the
+     * host serving the largest DNS list rate-limits, so that list was the one that reliably
+     * failed while the rest succeeded. Retrying with a short backoff turns a flaky fetch into a
+     * slow one. Throws only once every attempt has failed, so the caller can tell the user
+     * which list did not update rather than silently reporting the others as a full success.
+     */
+    private fun download(source: Source, profile: FetchProfile): String {
+        var lastError: Exception? = null
+        repeat(profile.attempts) { attempt ->
+            try {
+                return fetchOnce(source, profile)
+            } catch (e: Exception) {
+                lastError = e
+                Log.w(TAG, "fetch ${source.name} attempt ${attempt + 1}/${profile.attempts}: ${e.message}")
+                if (attempt < profile.attempts - 1) {
+                    Thread.sleep(RETRY_BACKOFF_MS * (attempt + 1))
+                }
+            }
+        }
+        throw lastError ?: IOException("could not fetch ${source.name}")
+    }
+
+    private fun fetchOnce(source: Source, profile: FetchProfile): String {
         val connection = (URL(source.url).openConnection() as HttpURLConnection).apply {
-            connectTimeout = 15_000
-            readTimeout = 30_000
+            connectTimeout = profile.connectTimeoutMs
+            readTimeout = profile.readTimeoutMs
             requestMethod = "GET"
-            setRequestProperty("User-Agent", "OmniShield/0.1")
+            instanceFollowRedirects = true
+            setRequestProperty("User-Agent", "OmniShield/0.2")
         }
         try {
             if (connection.responseCode !in 200..299) {
@@ -154,6 +228,19 @@ class FilterRepository(context: Context) {
 
     companion object {
         private const val TAG = "FilterRepo"
+
+        /** Base backoff between attempts; grows linearly with the attempt number. */
+        private const val RETRY_BACKOFF_MS = 1_000L
+
+        /**
+         * Manual refresh: one attempt, short timeouts. A dead host is reported as unreachable in
+         * about [FetchProfile.readTimeoutMs] rather than leaving the user on a spinner, and the
+         * user can simply tap refresh again — that is a retry they control.
+         */
+        val INTERACTIVE = FetchProfile(attempts = 1, connectTimeoutMs = 8_000, readTimeoutMs = 15_000)
+
+        /** Scheduled worker: retries, since nothing is waiting on it. */
+        val BACKGROUND = FetchProfile(attempts = 3, connectTimeoutMs = 10_000, readTimeoutMs = 20_000)
 
         /**
          * Layer 1 — hosts- and AdGuard-DNS-format sources. StevenBlack is the broad hosts
