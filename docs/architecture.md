@@ -23,10 +23,14 @@ Kotlin owns lifecycle, persistence and UI. Rust owns everything on the packet pa
 Rust at all. Keep it intact.
 
 Events flow back by polling rather than by native-to-JVM callbacks, which would mean attaching
-the tunnel thread to the JVM once per event. The poll interval adapts: it starts at 500 ms,
-doubles while the core reports nothing, and caps at 2 s with the UI in front or 30 s without. A
-drain that returns 75% or more of the core's 2000-entry ring snaps the interval back to the
-floor, so a busy device cannot overflow the ring and lose log rows.
+the tunnel thread to the JVM once per event. The poll interval adapts, with rules that differ
+by screen state: while someone is watching (activity bound and screen interactive), any event
+snaps it to the 500 ms floor and the ceiling is 2 s; screen off, the cadence follows drain
+*volume* — small batches double toward 30 s, moderate ones hold, large ones halve — because
+every allowed DNS query is an event, and resetting on any event would keep the loop at 2 Hz
+for as long as anything on the device has background traffic. Either way, a drain that returns
+75% or more of the core's 2000-entry ring polls below the floor, so a busy device cannot
+overflow the ring and lose log rows. [Performance](performance.md) has the full schedule.
 
 ## Transparent TCP
 

@@ -159,7 +159,7 @@ happens".
    like a hung tunnel, and the 30 s ceiling is the only reason it self-heals instead of
    staying wedged.
 
-### The tunnel loop (`core/src/runtime.rs`, ~1450 lines)
+### The tunnel loop (`core/src/runtime.rs`, ~1400 lines)
 
 One thread drives a single `poll()` over the TUN descriptor plus every upstream socket. The hard
 problem it solves: smoltcp sockets bind to a *specific* endpoint, but a transparent tunnel must
@@ -171,6 +171,14 @@ accept arbitrary destinations. Two mechanisms combine:
 
 `packet::parse` returning `None` means **drop**, never "forward unfiltered": passing a packet we
 failed to parse would be a filtering bypass.
+
+The connection structs and the retirement rules (`kill_upstream`, `reap`) live in
+`core/src/relay.rs`, *outside* the android-gated modules, so they compile and are unit-tested
+on the host — `cargo test` never type-checks `runtime.rs` itself, only `cargo ndk … check`
+does. Two rules there are load-bearing: an upstream read/write error must close the fd and
+withdraw it from the poll set (`POLLERR`/`POLLHUP` are reported even when not requested, so a
+dead fd left in the set spins the loop at 100% of a core), and a connection whose remaining
+bytes can never be delivered must be reaped rather than held for their sake.
 
 ### The tunnel does not claim the LAN
 
