@@ -117,9 +117,12 @@ jobs:
         id: notes
         run: |
           V="${{ steps.version.outputs.name }}"
+          # Skips link-reference definitions, which sit below the last section and would
+          # otherwise be pulled into the notes of whichever release is listed last.
           awk -v v="$V" '
             $0 ~ "^## \\[?"v"\\]?" {found=1; next}
             found && /^## / {exit}
+            found && /^\[[^]]+\]:[[:space:]]/ {next}
             found {print}
           ' CHANGELOG.md > notes.md
           if [ ! -s notes.md ]; then
