@@ -8,6 +8,27 @@ The release workflow reads the section matching the tag and uses it as the relea
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-08-17
+
+### Changed
+
+- **A second, deeper Material 3 Expressive pass.** The first pass swapped components; this one
+  adds the contrast the language runs on. Every screen now opens with a large collapsing
+  header. Related settings rows draw as one segmented group — big corners on the outside,
+  nearly square within — instead of cards separated by divider lines. The dashboard's badge,
+  status line and block rate share a zone that changes colour with the tunnel state, so
+  connecting recolours the screen rather than a single shape. The connect button grew to the
+  large Expressive size and morphs between round and square as it toggles. Counts tick over
+  with a slide instead of snapping, list rows fade in, and while protection is on the sun
+  shape turns slowly. The status line, the counts and the section titles moved to the
+  emphasized type styles.
+- Onboarding's badge morphs to a different shape on each page, and empty lists show a soft
+  shape backdrop instead of a bare line of text.
+- The pause durations divide their row into three equal buttons instead of hugging the
+  start edge.
+- All decorative motion — the turning sun, the sliding counts, the row fade-ins — respects
+  the system "remove animations" setting.
+
 ## [0.3.1] - 2026-08-17
 
 ### Fixed
@@ -96,7 +117,8 @@ OISD plus a bundled starter list, refreshed daily over Wi-Fi.
 Per-ABI APKs for `arm64-v8a` and `x86_64` plus a universal build. Android 10 and later.
 Sideloaded, because Play policy forbids apps that block ads in other apps.
 
-[Unreleased]: https://github.com/melvinsh/omnishield/compare/v0.3.1...HEAD
+[Unreleased]: https://github.com/melvinsh/omnishield/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/melvinsh/omnishield/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/melvinsh/omnishield/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/melvinsh/omnishield/compare/v0.2.2...v0.3.0
 [0.2.2]: https://github.com/melvinsh/omnishield/compare/v0.2.1...v0.2.2
