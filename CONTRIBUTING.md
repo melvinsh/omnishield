@@ -6,7 +6,7 @@ project, so reviews are not instant.
 ## Before you write code
 
 For anything beyond a small fix, open an issue first. The parts of this codebase that look
-arbitrary usually are not, and a short conversation saves a rewrite. `docs/` and `CLAUDE.md`
+arbitrary usually are not, and a short conversation saves a rewrite. `docs/` and `AGENTS.md`
 record the reasoning behind the constraints that are not obvious from the code.
 
 ## Setting up

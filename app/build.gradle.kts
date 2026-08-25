@@ -85,7 +85,7 @@ android {
         release {
             // R8 was configured but switched off, which made the proguardFiles below inert —
             // the keep rules for the JNI seam existed but were never exercised. It is on now,
-            // and the rules matter: breaking either of the first two couplings in CLAUDE.md
+            // and the rules matter: breaking either of the first two couplings in AGENTS.md
             // produces no build error, only a tunnel that silently does nothing.
             isMinifyEnabled = true
             isShrinkResources = true

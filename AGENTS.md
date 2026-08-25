@@ -1,12 +1,13 @@
-# CLAUDE.md
+# AGENTS.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Guidance for coding agents working in this repository.
 
 OmniShield is a non-root Android ad/tracker blocker: a Kotlin/Compose app over a Rust core that
 owns the entire packet path behind `VpnService`.
 
-`README.md` is written for someone installing the app, not for working on it. The technical
-documentation lives in `docs/`:
+`README.md` is written for someone installing the app, not for working on it. Technical
+documentation lives in `docs/`. Some of what follows is repeated there. When they disagree, the
+code wins, and fix both.
 
 | File | What to read it for |
 |---|---|
@@ -15,127 +16,43 @@ documentation lives in `docs/`:
 | `docs/performance.md` | Measured cost, the mechanisms behind it, and the deliberate choices that look like waste. Check there before "fixing" one of them |
 | `docs/interface.md` | Material 3 Expressive, and why each screen is shaped the way it is |
 
-Some of what follows is repeated in those files. When they disagree, the code wins, and fix both.
-
 The repo is **public** and MIT licensed. `CONTRIBUTING.md`, `SECURITY.md`, `NOTICE.md` and
 `CHANGELOG.md` are written for strangers and this file is not, but all of them are readable by
-anyone. Two consequences for changes made here: a new dependency in `core/Cargo.toml` must not
-be GPL, since that would conflict with the app's licence (`NOTICE.md` explains the check), and
-the `## [x.y.z]` headings in `CHANGELOG.md` are parsed by the release workflow, so reshaping
-them silently empties the release notes.
+anyone.
 
-## Environment
+## Do not break
 
-Nothing is on the default PATH. Every command below assumes:
+- A new dependency in `core/Cargo.toml` must not be GPL. That would conflict with the app's
+  licence; `NOTICE.md` explains the check.
+- The `## [x.y.z]` headings in `CHANGELOG.md` are parsed by the release workflow. Reshaping
+  them silently empties the release notes.
+- **`core/Cargo.toml` sets `panic = "abort"`.** A panic cannot usefully unwind across the JNI
+  boundary, and the alternative is worse than a crash: unwinding kills only the tunnel thread,
+  leaving `VpnService` holding a TUN that nothing services, so every app on the device loses
+  connectivity with no error anywhere. Aborting takes the process down and `START_STICKY`
+  brings it back. Consequence: no `catch_unwind` anywhere in the core will work.
+- cargo-ndk's panic handler dumps the entire process environment to stdout. Do not run it from
+  a shell holding live credentials.
+- Once `OmniShieldVpnService` calls `ParcelFileDescriptor.detachFd()` and hands the descriptor
+  to `nativeStart`, **no packet crosses the JNI boundary**. Preserve this: it is the reason the
+  core is in Rust at all.
+- `packet::parse` returning `None` means **drop**, never "forward unfiltered": passing a packet
+  we failed to parse would be a filtering bypass.
 
-```bash
-export JAVA_HOME=/opt/homebrew/opt/openjdk@17          # keg-only
-export ANDROID_HOME=/opt/homebrew/share/android-commandlinetools
-export PATH="$JAVA_HOME/bin:$ANDROID_HOME/platform-tools:/opt/homebrew/opt/rustup/bin:$HOME/.cargo/bin:$PATH"
-```
+`docs/development.md` has the full version-constraint table. The ones that bite hardest:
 
-rustup's shims live in `/opt/homebrew/opt/rustup/bin`, **not** `~/.cargo/bin` (which holds only
-cargo-installed binaries like `cargo-ndk`). Gradle resolves `cargo` itself via `rustToolDirs` in
-`app/build.gradle.kts`, so builds work without these exports; the Rust commands do not.
+- **AGP 9.x is mandatory** (current AndroidX declares `requires Android Gradle plugin 9.1.0 or
+  higher`), and AGP 9 has built-in Kotlin, so applying the `kotlin-android` plugin is a hard
+  failure.
+- **`compileSdk` 37 / `targetSdk` 34** are deliberately different; the platform package is
+  `platforms;android-37.0` (the `.0` is required).
+- **`minSdk` 29 cannot go lower**: `ConnectivityManager.getConnectionOwnerUid` does not exist
+  below it and `/proc/net` scraping was blocked in the same release, so the per-app firewall is
+  impossible on anything older.
+- material3 is pinned to a **1.5.0-alpha** ahead of the BOM for the Expressive component set;
+  the rest of Compose stays stable.
 
-Git: `master` on `github.com/melvinsh/omnishield`. Build outputs, `core/target/`,
-`app/src/main/jniLibs/` and the ~13 MB of downloaded blocklists are gitignored; the lists are
-pulled off a device on demand (see the offline probes below), while `core/probe-*.txt` are
-checked-in fixtures and should stay that way.
-
-## Commands
-
-```bash
-./gradlew assembleDebug        # cargoNdkBuild runs automatically via preBuild
-./gradlew installDebug
-```
-
-Measuring cost. CPU time is the battery proxy, since battery itself is not measurable on QEMU.
-Compare `/proc/<pid>/stat` utime+stime deltas over a fixed window, with the screen both on and
-off, plus `dumpsys meminfo io.omnishield` at startup *and* 60 s later; the startup peak and the
-steady state are different numbers, and the peak is the one the filter cache addresses.
-
-Tests, all three of which must pass:
-
-```bash
-cd core && cargo test                      # 101 host-native tests, no emulator
-./gradlew testDebugUnitTest                # 58 Kotlin unit tests (Robolectric)
-./gradlew connectedDebugAndroidTest        # 36 Room + Compose UI tests, needs an emulator
-```
-
-Single tests:
-
-```bash
-cd core && cargo test filter::tests::www_rule_does_not_widen_to_apex
-./gradlew testDebugUnitTest --tests "io.omnishield.data.CoreJsonTest"
-./gradlew connectedDebugAndroidTest \
-  -Pandroid.testInstrumentationRunnerArguments.class=io.omnishield.data.db.DatabaseTest
-```
-
-Building the Rust core alone **must run from `core/`**, because cargo-ndk invokes
-`cargo metadata` in the working directory and `--manifest-path` alone is not enough. Note `-P`
-(capital) is the API level; lowercase `-p` means `--package` in cargo-ndk 4.x and fails with
-`unknown package: 29`:
-
-```bash
-cd core && cargo ndk -t arm64-v8a -t x86_64 -P 29 -o ../app/src/main/jniLibs build --release
-```
-
-Two offline probes exist for reasoning about filter behaviour without a device. Use these
-instead of guessing whether a miss is a rule gap or a code bug:
-
-```bash
-cd core
-cargo run --release --example dnstest  -- probe-hosts.txt <list.txt> [more.txt ...]
-cargo run --release --example ruletest -- easylist.txt easyprivacy.txt
-```
-
-**`dnstest`'s first argument is the list of hostnames to *test*, not a blocklist**: one bare
-hostname per line. Passing a blocklist there reports `blocked 0/N` and looks exactly like a
-catastrophic filtering regression. Everything after it is a blocklist. Run it twice: once with
-hostnames that must be blocked and once with legitimate ones that must not, because
-over-blocking is the failure mode a single probe will not show you.
-
-The lists themselves are not in the repo. Pull the real ones off a device that has run once:
-
-```bash
-adb shell "run-as io.omnishield cat files/filters/stevenblack-hosts.txt" > stevenblack-hosts.txt
-unzip -p app/build/outputs/apk/debug/app-debug.apk assets/filters/default.txt > bundled.txt
-```
-
-Use `--release`: a debug build parses 13 MB of lists slowly enough to look hung.
-
-Emulators (`omnishield-34` is the default target; `omnishield-33` exists because Android 14
-made the system trust store immutable, so CA-injection testing only works on 33):
-
-```bash
-$ANDROID_HOME/emulator/emulator -avd omnishield-34 -no-snapshot -no-boot-anim
-adb shell appops set io.omnishield ACTIVATE_VPN allow   # skip the consent dialog when scripting
-```
-
-## Architecture
-
-### The language split
-
-Kotlin owns lifecycle, persistence and UI. Rust owns everything on the packet path. Once
-`OmniShieldVpnService` calls `ParcelFileDescriptor.detachFd()` and hands the descriptor to
-`nativeStart`, **no packet crosses the JNI boundary**. Preserve this: it is the reason the core
-is in Rust at all.
-
-Events flow back by *polling* (`nativeDrainEvents` in `pollCore()`), not by native-to-JVM
-callbacks, which would require attaching the tunnel thread to the JVM per event. The poll
-interval is **adaptive**, not fixed, and its rules differ by screen state (`PollSchedule`):
-while someone is watching (`TunnelRepository.uiActive` *and* the screen interactive), any event
-snaps the interval to the 500 ms floor and the ceiling is 2 s. Screen off, cadence follows
-drain *volume*, not activity — small batches let it double toward 30 s, moderate ones hold,
-large ones halve — because every allowed DNS query is an event, so "any event resets the
-floor" would keep the loop at 2 Hz all night. Either way a drain returning ≥75% of the core's
-2000-entry ring polls below the floor, so a busy device cannot overflow the ring and lose log
-rows. The stats JNI call, the notification republish and the StateFlow writes are all skipped
-when nothing happened and nobody is looking; a screen-on receiver refreshes the notification
-on wake.
-
-### Four couplings that fail silently
+## Couplings that fail silently
 
 None of these produce a compile error when broken. They fail at runtime, usually as "nothing
 happens".
@@ -159,7 +76,24 @@ happens".
    like a hung tunnel, and the 30 s ceiling is the only reason it self-heals instead of
    staying wedged.
 
-### The tunnel loop (`core/src/runtime.rs`, ~1400 lines)
+## Packet path
+
+Kotlin owns lifecycle, persistence and UI. Rust owns everything on the packet path.
+
+Events flow back by *polling* (`nativeDrainEvents` in `pollCore()`), not by native-to-JVM
+callbacks, which would require attaching the tunnel thread to the JVM per event. The poll
+interval is **adaptive**, not fixed, and its rules differ by screen state (`PollSchedule`):
+while someone is watching (`TunnelRepository.uiActive` *and* the screen interactive), any event
+snaps the interval to the 500 ms floor and the ceiling is 2 s. Screen off, cadence follows
+drain *volume*, not activity — small batches let it double toward 30 s, moderate ones hold,
+large ones halve — because every allowed DNS query is an event, so "any event resets the
+floor" would keep the loop at 2 Hz all night. Either way a drain returning ≥75% of the core's
+2000-entry ring polls below the floor, so a busy device cannot overflow the ring and lose log
+rows. The stats JNI call, the notification republish and the StateFlow writes are all skipped
+when nothing happened and nobody is looking; a screen-on receiver refreshes the notification
+on wake.
+
+### Tunnel loop (`core/src/runtime.rs`, ~1400 lines)
 
 One thread drives a single `poll()` over the TUN descriptor plus every upstream socket. The hard
 problem it solves: smoltcp sockets bind to a *specific* endpoint, but a transparent tunnel must
@@ -168,9 +102,6 @@ accept arbitrary destinations. Two mechanisms combine:
 - `Interface::set_any_ip(true)`, to accept packets not addressed to us.
 - Every packet is peeked before smoltcp sees it; on a SYN to a new 4-tuple a socket is created
   already listening on that exact destination, *then* the frame is handed over.
-
-`packet::parse` returning `None` means **drop**, never "forward unfiltered": passing a packet we
-failed to parse would be a filtering bypass.
 
 The connection structs and the retirement rules (`kill_upstream`, `reap`) live in
 `core/src/relay.rs`, *outside* the android-gated modules, so they compile and are unit-tested
@@ -198,7 +129,7 @@ Two things not to break when touching it:
   computed. For the same reason `BigInteger.TWO` is unusable here: it is API 33, the unit tests
   run on a desktop JVM where it exists, and only lint catches it.
 
-### Filtering layers
+## Filtering
 
 | Layer | Module | Sees |
 |---|---|---|
@@ -226,7 +157,7 @@ downloaded rule at the same specificity.
 DNS list formats and ABP browser syntax are **not interchangeable**. `FilterRepository` keeps
 `DNS_SOURCES` and `CONTENT_SOURCES` separate; feeding EasyList to the DNS filter produces junk.
 
-### Kotlin data flow
+## Kotlin and UI
 
 `OmniShieldVpnService` → `TunnelRepository` (process-level observable state) and
 `LogRepository` (durable Room history + daily rollups). Screens read ViewModels only; they never
@@ -244,8 +175,6 @@ render its reason, not fall back to looking like "not connected".
 
 Room has **no destructive migration fallback**. Schema changes need a real migration; schemas
 are exported to `app/schemas/`.
-
-### The screens
 
 Five tabs, one file each in `ui/`, all wrapped in `ui/components/ScreenScaffold`, which
 supplies the title bar (title + one-line statement of what the screen is for) and the
@@ -271,25 +200,99 @@ Three things in here are not free choices:
   the manual "Refresh now" in Settings therefore says the lists load on the next connect rather
   than implying an effect it does not have.
 
-## Build constraints, before touching Gradle
+## Environment
 
-`docs/development.md` has the full table. The ones that bite hardest:
+Nothing is on the default PATH. Every command below assumes:
 
-- **AGP 9.x is mandatory** (current AndroidX declares `requires Android Gradle plugin 9.1.0 or
-  higher`), and AGP 9 has built-in Kotlin, so applying the `kotlin-android` plugin is a hard
-  failure.
-- **`compileSdk` 37 / `targetSdk` 34** are deliberately different; the platform package is
-  `platforms;android-37.0` (the `.0` is required).
-- **`minSdk` 29 cannot go lower**: `ConnectivityManager.getConnectionOwnerUid` does not exist
-  below it and `/proc/net` scraping was blocked in the same release, so the per-app firewall is
-  impossible on anything older.
-- material3 is pinned to a **1.5.0-alpha** ahead of the BOM for the Expressive component set;
-  the rest of Compose stays stable.
-- **`core/Cargo.toml` sets `panic = "abort"`.** A panic cannot usefully unwind across the JNI
-  boundary, and the alternative is worse than a crash: unwinding kills only the tunnel thread,
-  leaving `VpnService` holding a TUN that nothing services, so every app on the device loses
-  connectivity with no error anywhere. Aborting takes the process down and `START_STICKY`
-  brings it back. Consequence: no `catch_unwind` anywhere in the core will work.
+```bash
+export JAVA_HOME=/opt/homebrew/opt/openjdk@17          # keg-only
+export ANDROID_HOME=/opt/homebrew/share/android-commandlinetools
+export PATH="$JAVA_HOME/bin:$ANDROID_HOME/platform-tools:/opt/homebrew/opt/rustup/bin:$HOME/.cargo/bin:$PATH"
+```
 
-> cargo-ndk's panic handler dumps the entire process environment to stdout. Do not run it from a
-> shell holding live credentials.
+rustup's shims live in `/opt/homebrew/opt/rustup/bin`, **not** `~/.cargo/bin` (which holds only
+cargo-installed binaries like `cargo-ndk`). Gradle resolves `cargo` itself via `rustToolDirs` in
+`app/build.gradle.kts`, so builds work without these exports; the Rust commands do not.
+
+Git: `master` on `github.com/melvinsh/omnishield`. Build outputs, `core/target/`,
+`app/src/main/jniLibs/` and the ~13 MB of downloaded blocklists are gitignored; the lists are
+pulled off a device on demand (see [Offline probes](#offline-probes)), while `core/probe-*.txt`
+are checked-in fixtures and should stay that way.
+
+## Build
+
+```bash
+./gradlew assembleDebug        # cargoNdkBuild runs automatically via preBuild
+./gradlew installDebug
+```
+
+Building the Rust core alone **must run from `core/`**, because cargo-ndk invokes
+`cargo metadata` in the working directory and `--manifest-path` alone is not enough. Note `-P`
+(capital) is the API level; lowercase `-p` means `--package` in cargo-ndk 4.x and fails with
+`unknown package: 29`:
+
+```bash
+cd core && cargo ndk -t arm64-v8a -t x86_64 -P 29 -o ../app/src/main/jniLibs build --release
+```
+
+## Test
+
+All three suites must pass:
+
+```bash
+cd core && cargo test                      # 108 host-native tests, no emulator
+./gradlew testDebugUnitTest                # 58 Kotlin unit tests (Robolectric)
+./gradlew connectedDebugAndroidTest        # 36 Room + Compose UI tests, needs an emulator
+```
+
+Single tests:
+
+```bash
+cd core && cargo test filter::tests::www_rule_does_not_widen_to_apex
+./gradlew testDebugUnitTest --tests "io.omnishield.data.CoreJsonTest"
+./gradlew connectedDebugAndroidTest \
+  -Pandroid.testInstrumentationRunnerArguments.class=io.omnishield.data.db.DatabaseTest
+```
+
+## Offline probes
+
+Two offline probes exist for reasoning about filter behaviour without a device. Use these
+instead of guessing whether a miss is a rule gap or a code bug:
+
+```bash
+cd core
+cargo run --release --example dnstest  -- probe-hosts.txt <list.txt> [more.txt ...]
+cargo run --release --example ruletest -- easylist.txt easyprivacy.txt
+```
+
+**`dnstest`'s first argument is the list of hostnames to *test*, not a blocklist**: one bare
+hostname per line. Passing a blocklist there reports `blocked 0/N` and looks exactly like a
+catastrophic filtering regression. Everything after it is a blocklist. Run it twice: once with
+hostnames that must be blocked and once with legitimate ones that must not, because
+over-blocking is the failure mode a single probe will not show you.
+
+The lists themselves are not in the repo. Pull the real ones off a device that has run once:
+
+```bash
+adb shell "run-as io.omnishield cat files/filters/stevenblack-hosts.txt" > stevenblack-hosts.txt
+unzip -p app/build/outputs/apk/debug/app-debug.apk assets/filters/default.txt > bundled.txt
+```
+
+Use `--release`: a debug build parses 13 MB of lists slowly enough to look hung.
+
+## Emulators
+
+`omnishield-34` is the default target; `omnishield-33` exists because Android 14 made the system
+trust store immutable, so CA-injection testing only works on 33.
+
+```bash
+$ANDROID_HOME/emulator/emulator -avd omnishield-34 -no-snapshot -no-boot-anim
+adb shell appops set io.omnishield ACTIVATE_VPN allow   # skip the consent dialog when scripting
+```
+
+## Measuring cost
+
+CPU time is the battery proxy, since battery itself is not measurable on QEMU. Compare
+`/proc/<pid>/stat` utime+stime deltas over a fixed window, with the screen both on and off,
+plus `dumpsys meminfo io.omnishield` at startup *and* 60 s later; the startup peak and the
+steady state are different numbers, and the peak is the one the filter cache addresses.
