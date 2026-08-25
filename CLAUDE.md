@@ -177,8 +177,9 @@ The connection structs and the retirement rules (`kill_upstream`, `reap`) live i
 on the host — `cargo test` never type-checks `runtime.rs` itself, only `cargo ndk … check`
 does. Two rules there are load-bearing: an upstream read/write error must close the fd and
 withdraw it from the poll set (`POLLERR`/`POLLHUP` are reported even when not requested, so a
-dead fd left in the set spins the loop at 100% of a core), and a connection whose remaining
-bytes can never be delivered must be reaped rather than held for their sake.
+dead fd left in the set spins the loop at 100% of a core — UDP sessions included, because
+outgoing traffic refreshes their idle TTL), and a connection whose remaining bytes can never
+be delivered must be reaped rather than held for their sake.
 
 ### The tunnel does not claim the LAN
 

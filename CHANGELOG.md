@@ -8,6 +8,15 @@ The release workflow reads the section matching the tag and uses it as the relea
 
 ## [Unreleased]
 
+### Fixed
+
+- A UDP session whose upstream socket died — the same network-change teardown that used to pin
+  a core on TCP — could leave the descriptor in the poll set forever. Outgoing traffic on that
+  4-tuple refreshed the idle TTL, so the session never expired and the tunnel loop spun at 100%
+  of a core. Dead UDP sockets are now closed as soon as they report an error.
+- The dashboard sun used `rememberInfiniteTransition`, which woke the UI thread every display
+  frame for a 90-second rotation. It now advances once a second.
+
 ## [0.4.0] - 2026-08-17
 
 ### Changed

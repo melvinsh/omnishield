@@ -2,16 +2,12 @@
 
 package io.omnishield.ui
 
+import android.os.SystemClock
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -45,8 +41,11 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.ToggleButtonDefaults
 import androidx.compose.material3.TonalToggleButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -72,6 +71,7 @@ import io.omnishield.ui.theme.MorphShape
 import io.omnishield.ui.theme.ShieldMorph
 import java.text.DateFormat
 import java.util.Date
+import kotlinx.coroutines.delay
 
 @Composable
 fun DashboardScreen(
@@ -440,7 +440,9 @@ private fun Banner(
  *
  * While protection is on, the sun turns — one revolution every 90 seconds, too slow to watch
  * but enough that a glance reads "on". Only the shape layer rotates; the count stays upright.
- * Gated on [animationsEnabled] like every decorative motion here.
+ * Advanced once a second rather than on the display clock: `rememberInfiniteTransition` woke
+ * the UI thread every frame for a motion nobody can see at 60 Hz. Gated on
+ * [animationsEnabled] like every decorative motion here.
  *
  * The number is now labelled. On its own it was a large figure with no unit whose only caption
  * was the status line beneath it — which, when the tunnel was off, read "Not protected" and
@@ -474,19 +476,20 @@ private fun ShieldBadge(running: Boolean, blocked: Long) {
         stringResource(R.string.cd_shield_stopped, blocked)
     }
 
-    val angle: Float
-    if (running && animationsEnabled()) {
-        val idle = rememberInfiniteTransition(label = "shieldIdle")
-        angle = idle.animateFloat(
-            initialValue = 0f,
-            targetValue = 360f,
-            animationSpec = infiniteRepeatable(
-                tween(durationMillis = 90_000, easing = LinearEasing)
-            ),
-            label = "shieldRotation",
-        ).value
-    } else {
-        angle = 0f
+    var angle by remember { mutableFloatStateOf(0f) }
+    val spin = running && animationsEnabled()
+    LaunchedEffect(spin) {
+        if (!spin) {
+            angle = 0f
+            return@LaunchedEffect
+        }
+        val periodMs = 90_000L
+        val started = SystemClock.elapsedRealtime()
+        while (true) {
+            val elapsed = (SystemClock.elapsedRealtime() - started) % periodMs
+            angle = 360f * elapsed / periodMs
+            delay(1_000)
+        }
     }
 
     Column(

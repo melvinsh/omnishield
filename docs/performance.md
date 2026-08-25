@@ -51,9 +51,11 @@ Connections die with their sockets. An upstream read or write error — a server
 carrier NAT reclaim, the socket teardown Android performs on every network change — closes the
 upstream fd and withdraws it from the poll set at once, and the sweep reaps any connection
 whose remaining bytes can no longer be delivered, along with sockets aborted before they ever
-became connections (firewall-refused, failed dials). The stakes: `POLLERR` and `POLLHUP` are
-reported whether or not they were requested, so a dead descriptor left in the poll set turns
-the loop into a 100%-of-one-core busy wait until the tunnel restarts. The reap rules live in
+became connections (firewall-refused, failed dials). UDP is the same contract: `POLLERR` and
+`POLLHUP` retire the session immediately, because outgoing traffic on a live 4-tuple refreshes
+`last_seen` and the idle TTL would otherwise never fire. The stakes: those flags are reported
+whether or not they were requested, so a dead descriptor left in the poll set turns the loop
+into a 100%-of-one-core busy wait until the tunnel restarts. The reap rules live in
 `core/src/relay.rs`, where they are unit-tested on the host.
 
 UDP sessions expire on idleness, not on age. The TTL runs from the last packet in either

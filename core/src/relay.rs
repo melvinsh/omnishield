@@ -79,6 +79,27 @@ pub(crate) fn kill_upstream(conn: &mut TcpConn) {
     conn.to_remote.clear();
 }
 
+/// The upstream UDP socket is gone: close it and drop the session so the fd leaves the
+/// poll set on the next pass. Unlike TCP there is no leftover payload to deliver — a
+/// datagram that did not arrive is gone.
+///
+/// `POLLERR` and `POLLHUP` are reported even when they were not requested. Leaving a dead
+/// UDP fd in the set is the same busy-wait TCP used to have, and worse here: outgoing
+/// traffic refreshes [`UdpSession::last_seen`], so the idle TTL never fires while anything
+/// is still talking on that 4-tuple (DNS, QUIC, NTP).
+pub(crate) fn kill_udp(udp: &mut HashMap<FourTuple, UdpSession>, key: &FourTuple) {
+    if let Some(s) = udp.remove(key) {
+        if s.fd >= 0 {
+            unsafe { libc::close(s.fd) };
+        }
+    }
+}
+
+/// The fd is already invalid (`POLLNVAL`). Closing it would close someone else's descriptor.
+pub(crate) fn forget_udp(udp: &mut HashMap<FourTuple, UdpSession>, key: &FourTuple) {
+    udp.remove(key);
+}
+
 pub(crate) fn reap(
     sockets: &mut SocketSet<'static>,
     conns: &mut HashMap<SocketHandle, TcpConn>,
@@ -271,6 +292,57 @@ mod tests {
         udp.get_mut(&tuple).unwrap().last_seen = StdInstant::now() - UDP_SESSION_TTL * 2;
         reap(&mut sockets, &mut conns, &mut pending, &mut udp, &mut dying);
         assert!(udp.is_empty(), "idle session must expire");
+    }
+
+    fn test_udp(tuple: FourTuple) -> UdpSession {
+        UdpSession {
+            fd: -1,
+            app_addr: tuple.src,
+            app_port: tuple.src_port,
+            orig_dst: tuple.dst,
+            orig_port: tuple.dst_port,
+            last_seen: StdInstant::now(),
+            is_dns: false,
+            uid: -1,
+            app: Arc::from(""),
+        }
+    }
+
+    fn test_tuple() -> FourTuple {
+        FourTuple {
+            src: IpAddr::V4(Ipv4Addr::new(10, 0, 0, 2)),
+            dst: IpAddr::V4(Ipv4Addr::new(192, 0, 2, 1)),
+            src_port: 40000,
+            dst_port: 33434,
+        }
+    }
+
+    /// A dead UDP session must leave the table immediately. Holding it for the idle TTL —
+    /// and refreshing that TTL on every outgoing datagram — is how a POLLERR fd spun the
+    /// loop at a full core after a network change.
+    #[test]
+    fn kill_udp_removes_the_session() {
+        let tuple = test_tuple();
+        let mut udp = HashMap::new();
+        udp.insert(tuple, test_udp(tuple));
+
+        kill_udp(&mut udp, &tuple);
+
+        assert!(udp.is_empty(), "dead session must leave the poll set");
+        kill_udp(&mut udp, &tuple); // a second call must be a no-op
+    }
+
+    /// `POLLNVAL` means the fd is already gone; we drop the session without closing.
+    #[test]
+    fn forget_udp_drops_without_requiring_a_live_fd() {
+        let tuple = test_tuple();
+        let mut udp = HashMap::new();
+        udp.insert(tuple, test_udp(tuple));
+
+        forget_udp(&mut udp, &tuple);
+
+        assert!(udp.is_empty());
+        forget_udp(&mut udp, &tuple);
     }
 
     /// `kill_upstream` withdraws the fd, seals the upstream direction, and keeps what the app

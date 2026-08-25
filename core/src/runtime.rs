@@ -46,7 +46,7 @@ use crate::jvm::JavaBridge;
 use crate::mitm::{self, MitmSession};
 use crate::net;
 use crate::packet::{self, PROTO_TCP, PROTO_UDP};
-use crate::relay::{kill_upstream, reap, FourTuple, TcpConn, UdpSession};
+use crate::relay::{forget_udp, kill_udp, kill_upstream, reap, FourTuple, TcpConn, UdpSession};
 use crate::tun::TunDevice;
 use crate::wake::Waker;
 
@@ -483,10 +483,13 @@ fn run_loop(
 
         // --- 7. Upstream UDP replies ----------------------------------------
         for (i, key) in udp_keys.iter().enumerate() {
-            let revents = fds[2 + conn_keys.len() + i].revents;
-            if revents & libc::POLLIN != 0 {
-                pump_udp(key, &mut udp, &mut device, &shared);
-            }
+            handle_udp_revents(
+                key,
+                fds[2 + conn_keys.len() + i].revents,
+                &mut udp,
+                &mut device,
+                &shared,
+            );
         }
 
         // --- 8. Turn what step 6 queued into actual packets ------------------
@@ -1028,49 +1031,96 @@ fn forward_udp(
     };
 }
 
+/// Dispatches one UDP fd's `poll` result.
+///
+/// `POLLIN` is the happy path. `POLLERR`/`POLLHUP` are reported even when not requested —
+/// the same trap TCP used to fall into — and `POLLNVAL` means the fd is already gone, so
+/// we must not `close` it.
+fn handle_udp_revents(
+    key: &FourTuple,
+    revents: i16,
+    udp: &mut HashMap<FourTuple, UdpSession>,
+    device: &mut TunDevice,
+    shared: &Arc<Shared>,
+) {
+    if revents == 0 {
+        return;
+    }
+    if revents & libc::POLLNVAL != 0 {
+        forget_udp(udp, key);
+        return;
+    }
+    if revents & libc::POLLIN != 0 {
+        pump_udp(key, udp, device, shared);
+    }
+    if revents & (libc::POLLERR | libc::POLLHUP) != 0 {
+        kill_udp(udp, key);
+    }
+}
+
 fn pump_udp(
     key: &FourTuple,
     udp: &mut HashMap<FourTuple, UdpSession>,
     device: &mut TunDevice,
     shared: &Arc<Shared>,
 ) {
-    let session = match udp.get_mut(key) {
-        Some(s) => s,
-        None => return,
-    };
-    let mut buf = [0u8; 4096];
-    loop {
-        let n = unsafe {
-            libc::recv(
-                session.fd,
-                buf.as_mut_ptr() as *mut libc::c_void,
-                buf.len(),
-                0,
-            )
+    let mut dead = false;
+    {
+        let session = match udp.get_mut(key) {
+            Some(s) => s,
+            None => return,
         };
-        if n <= 0 {
-            break;
+        let mut buf = [0u8; 4096];
+        loop {
+            let n = unsafe {
+                libc::recv(
+                    session.fd,
+                    buf.as_mut_ptr() as *mut libc::c_void,
+                    buf.len(),
+                    0,
+                )
+            };
+            if n > 0 {
+                session.last_seen = StdInstant::now();
+                let reply = &buf[..n as usize];
+                // Cache before relaying, so the very next A/AAAA/HTTPS lookup for the same name is
+                // answered locally instead of costing another round trip and another radio wakeup.
+                if session.is_dns {
+                    shared
+                        .dns_cache
+                        .lock()
+                        .unwrap_or_else(|p| p.into_inner())
+                        .put(reply, StdInstant::now());
+                }
+                if let Some(frame) = net::build_udp_packet(
+                    session.orig_dst,
+                    session.orig_port,
+                    session.app_addr,
+                    session.app_port,
+                    reply,
+                ) {
+                    device.inject_tx(frame);
+                }
+            } else if n == 0 {
+                // A zero-length datagram is valid UDP, not EOF.
+                break;
+            } else {
+                // EWOULDBLOCK is EAGAIN on Linux; naming both trips unreachable_patterns.
+                match io::Error::last_os_error().raw_os_error() {
+                    Some(libc::EAGAIN) | Some(libc::EINTR) => break,
+                    err => {
+                        // Same class as the TCP read-error path: an unconsumed error leaves
+                        // the fd permanently ready and the loop never sleeps.
+                        log::debug!("upstream udp recv failed: {err:?}");
+                        dead = true;
+                        break;
+                    }
+                }
+            }
         }
-        session.last_seen = StdInstant::now();
-        let reply = &buf[..n as usize];
-        // Cache before relaying, so the very next A/AAAA/HTTPS lookup for the same name is
-        // answered locally instead of costing another round trip and another radio wakeup.
-        if session.is_dns {
-            shared
-                .dns_cache
-                .lock()
-                .unwrap_or_else(|p| p.into_inner())
-                .put(reply, StdInstant::now());
-        }
-        if let Some(frame) = net::build_udp_packet(
-            session.orig_dst,
-            session.orig_port,
-            session.app_addr,
-            session.app_port,
-            reply,
-        ) {
-            device.inject_tx(frame);
-        }
+    }
+    if dead {
+        kill_udp(udp, key);
     }
 }
 
