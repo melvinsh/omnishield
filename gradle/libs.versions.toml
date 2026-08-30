@@ -14,7 +14,7 @@ composeBom = "2026.08.00"
 #
 # This alpha declares compose-foundation/ui 1.12.0-beta01, which the BOM's stable 1.12.0
 # already satisfies, so only material3 is pre-release — the rest of Compose stays stable.
-material3 = "1.5.0-alpha26"
+material3 = "1.5.0-alpha27"
 coreKtx = "1.19.0"
 activityCompose = "1.13.0"
 lifecycle = "2.11.0"
