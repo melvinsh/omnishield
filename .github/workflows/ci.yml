@@ -25,7 +25,7 @@ jobs:
     name: Rust core
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - name: Install Rust
         run: rustup show          # installs what core/rust-toolchain.toml pins
@@ -51,7 +51,7 @@ jobs:
     name: Android build and unit tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - uses: gradle/actions/wrapper-validation@v4
 
@@ -118,7 +118,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: android
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       # The AVD wants 7.2 GB for its userdata partition alone, and a stock runner plus this
       # job's NDK leaves less than that free. The emulator then dies at startup with "Not
