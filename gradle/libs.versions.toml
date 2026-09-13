@@ -2,9 +2,9 @@
 # AGP 9.x is not optional here: androidx.core 1.19.0 and lifecycle 2.11.0 declare a hard
 # "requires Android Gradle plugin 9.1.0 or higher" in their AAR metadata. Staying on AGP 8.x
 # would mean pinning the entire AndroidX set back roughly a year.
-agp = "9.3.1"
-kotlin = "2.4.10"
-ksp = "2.3.11"
+agp = "9.4.0"
+kotlin = "2.4.20"
+ksp = "2.3.12"
 composeBom = "2026.08.00"
 
 # Pinned ahead of the BOM. The Material 3 Expressive component set — ButtonGroup,
