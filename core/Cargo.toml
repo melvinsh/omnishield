@@ -15,7 +15,7 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 log = "0.4"
 libc = "0.2"
-smoltcp = "0.13"
+smoltcp = "0.14"
 # `rc` lets Arc<str> serialize as a plain string, which is what allows the hot
 # event fields to be refcounted instead of reallocated per event.
 serde = { version = "1", features = ["derive", "rc"] }
@@ -38,11 +38,11 @@ adblock = { version = "0.13", default-features = false, features = ["embedded-do
 lol_html = "3"
 httparse = "1"
 flate2 = "1"
-lru = "0.18"
+lru = "0.19"
 
 [target.'cfg(target_os = "android")'.dependencies]
-jni = "0.21"
-android_logger = "0.14"
+jni = "0.22"
+android_logger = "0.15"
 
 [profile.release]
 opt-level = 3
